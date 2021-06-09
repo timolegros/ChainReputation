@@ -21,7 +21,7 @@ contract("reputationToken", function (accounts) {
   //   console.log("Controller>>>>>>", await repToken.controller())
   // });
 
-  it("should assert true", async function () {
+  it("Checks that the contract deploys without errors", async function () {
     await reputationToken.deployed();
     return assert.isTrue(true);
   });
@@ -30,6 +30,7 @@ contract("reputationToken", function (accounts) {
     let repToken = await reputationToken.deployed();
     assert.equal(await repToken.name(), "Reputation");
     assert.equal(await repToken.symbol(), "Rep");
+    assert.equal(await repToken.version(), "v1");
     assert.equal(await repToken.granularity(), 1);
   });
 

@@ -4,6 +4,8 @@ pragma solidity >=0.4.22 <0.9.0;
 contract reputationToken {
   string public name = "Reputation";
   string public symbol = "Rep";
+  string public version = "v1";
+
   uint256 public granularity = 1;
 
   // mapping that stores reputation amount per address
@@ -15,7 +17,7 @@ contract reputationToken {
   // stores the address of the owner of the smart contract
   address public owner;
 
-  constructor(address _reputationController) public {
+  constructor(address _reputationController) {
     // sets the controller of this contract as the reputationController contract
     controller = _reputationController;
     // sets the owner as the deployer (who deployed reputationToken and reputationController together)
@@ -46,13 +48,13 @@ contract reputationToken {
     _;
   }
 
-  function issueReputation(address _to, uint256 _amount) public onlyControllerOrOwner returns (bool success) {
+  function issueReputation(address _to, uint256 _amount) external onlyControllerOrOwner returns (bool success) {
     reputationOf[_to] += _amount;
     emit Issued(_to, _amount);
     return true;
   }
 
-  function burnReputation(address _from, uint256 _amount) public onlyControllerOrOwner returns (bool success) {
+  function burnReputation(address _from, uint256 _amount) external onlyControllerOrOwner returns (bool success) {
     if (reputationOf[_from] - _amount < 0) {
       reputationOf[_from] = 0;
     } else {
