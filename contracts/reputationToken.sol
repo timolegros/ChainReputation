@@ -12,27 +12,14 @@ contract reputationToken {
   // stores the address of the smart contract that controls this token
   address public controller;
 
+  // stores the address of the owner of the smart contract
+  address public owner;
+
   constructor(address _reputationController) public {
     // sets the controller of this contract as the reputationController contract
     controller = _reputationController;
-  }
-
-  // Used to require that the msg.sender (caller) is the controller in order to execute a function
-  modifier onlyController () {
-    require(msg.sender == controller);
-    _;
-  }
-
-  function issueReputation(address _to, uint256 _amount) public onlyController returns (bool success) {
-    reputationOf[_to] += _amount;
-    emit Issued(_to, _amount);
-    return true;
-  }
-
-  function burnReputation(address _from, uint256 _amount) public onlyController returns (bool success) {
-    reputationOf[_from] -= _amount;
-    emit Burned(_from, _amount);
-    return true;
+    // sets the owner as the deployer (who deployed reputationToken and reputationController together)
+    owner = msg.sender;
   }
 
   // Emitted when the contract generates and assigns and mount of reputation to an account
@@ -47,8 +34,28 @@ contract reputationToken {
     uint256 amount
   );
 
-  // TODO: create function so that only the owner/creator of this contract can change the controller/controlling contract
-  function changeController(address _newController) public onlyController returns (bool success) {
+  // Used to require that the msg.sender (caller) is the controller in order to execute a function
+  modifier onlyControllerOrOwner () {
+    require(msg.sender == controller || msg.sender == owner);
+    _;
+  }
+
+  function issueReputation(address _to, uint256 _amount) public onlyControllerOrOwner returns (bool success) {
+    reputationOf[_to] += _amount;
+    emit Issued(_to, _amount);
+    return true;
+  }
+
+  function burnReputation(address _from, uint256 _amount) public onlyControllerOrOwner returns (bool success) {
+    reputationOf[_from] -= _amount;
+    emit Burned(_from, _amount);
+    return true;
+  }
+
+  // This function changes the controller contract address and is only accessible to the owner of this contract
+  function changeController(address _newController) public returns (bool success) {
+    require(msg.sender == owner);
+    controller = _newController;
     return true;
   }
 }
