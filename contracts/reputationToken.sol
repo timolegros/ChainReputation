@@ -34,6 +34,12 @@ contract reputationToken {
     uint256 amount
   );
 
+  // Emitted when the controller (controlling contract) changes
+  event ControllerChanged(
+    address indexed _newController,
+    address indexed _oldController
+  );
+
   // Used to require that the msg.sender (caller) is the controller in order to execute a function
   modifier onlyControllerOrOwner () {
     require(msg.sender == controller || msg.sender == owner);
@@ -47,7 +53,12 @@ contract reputationToken {
   }
 
   function burnReputation(address _from, uint256 _amount) public onlyControllerOrOwner returns (bool success) {
-    reputationOf[_from] -= _amount;
+    if (reputationOf[_from] - _amount < 0) {
+      reputationOf[_from] = 0;
+    } else {
+      reputationOf[_from] -= _amount;
+    }
+
     emit Burned(_from, _amount);
     return true;
   }
@@ -55,7 +66,13 @@ contract reputationToken {
   // This function changes the controller contract address and is only accessible to the owner of this contract
   function changeController(address _newController) public returns (bool success) {
     require(msg.sender == owner);
+    address oldController = controller;
+
     controller = _newController;
+    emit ControllerChanged(_newController, oldController);
+
     return true;
   }
+
+  // TODO: devise method for transferring all reputation from one account to another (approval system?)
 }
