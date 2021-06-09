@@ -23,22 +23,32 @@ contract reputationToken {
     _;
   }
 
-  function issueReputation(address _admin, uint256 _amount) public onlyController returns (bool success) {
+  function issueReputation(address _to, uint256 _amount) public onlyController returns (bool success) {
+    reputationOf[_to] += _amount;
+    emit Issued(_to, _amount);
+    return true;
+  }
+
+  function burnReputation(address _from, uint256 _amount) public onlyController returns (bool success) {
+    reputationOf[_from] -= _amount;
+    emit Burned(_from, _amount);
     return true;
   }
 
   // Emitted when the contract generates and assigns and mount of reputation to an account
   event Issued(
-    address indexed owner,
+    address indexed _to,
     uint256 amount
   );
 
   // Emitted when the contract burns some amount of reputation on a certain account
   event Burned(
-    address indexed owner,
+    address indexed _from,
     uint256 amount
   );
 
   // TODO: create function so that only the owner/creator of this contract can change the controller/controlling contract
-
+  function changeController(address _newController) public onlyController returns (bool success) {
+    return true;
+  }
 }
