@@ -11,6 +11,7 @@ contract("reputationToken", function (accounts) {
   let owner = accounts[0];
   let receivingAcc = accounts[1];
   let callingAcc = accounts[5];
+  let newAdmin = accounts[2];
 
   it("Checks that the contract deploys without errors", async function () {
     await reputationToken.deployed();
@@ -23,6 +24,29 @@ contract("reputationToken", function (accounts) {
     assert.equal(await repToken.symbol(), "Rep");
     assert.equal(await repToken.version(), "v1");
     assert.equal(await repToken.granularity(), 1);
+  });
+
+  it('should allow the owner to add admins', async function () {
+    let repToken = await reputationToken.deployed();
+    // checks that addAdmin function is not callable by anyone but the owner
+    try {
+      await repToken.addAdmin.call(newAdmin, { from: callingAcc });
+      throw(new Error("addAdmin should only be callable by the owner"));
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
+    }
+
+    assert.equal(await repToken.addAdmin.call(newAdmin, { from: owner }), true, "Function should return true");
+
+    let receipt = await repToken.addAdmin(newAdmin, { from: owner });
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "AdminAdded", "The event triggered should be an AdminAdded event");
+    assert.equal(receipt.logs[0].args._newAdmin, newAdmin, "The new admin address emitted should be correct")
+
+    let admin = await repToken.admins(newAdmin);
+    assert.equal(await admin.authorized, true, "The new admin should be authorized to issue and burn reputation tokens");
+    assert.equal(await admin.totalRepIssued, 0, "The new admin should have 0 total reputation issued");
+    assert.equal(await admin.totalRepBurned, 0, "The new admin should have 0 total reputation burned");
   });
 
   it('should issue reputation to an account', async function () {

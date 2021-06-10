@@ -31,8 +31,8 @@ contract reputationToken {
 
   struct Admin {
     bool authorized;
-    uint256 totalIssued;
-    uint256 totalBurned;
+    uint256 totalRepIssued;
+    uint256 totalRepBurned;
   }
 
   // Emitted when the contract generates and assigns and mount of reputation to an account
@@ -42,7 +42,7 @@ contract reputationToken {
   event Burned(address indexed _from, uint256 amount);
 
   // Emitted when the owner adds an admin
-  event AdminAdded(address indexed _newAdming);
+  event AdminAdded(address indexed _newAdmin);
 
   // Used to require that the msg.sender (caller) is the controller in order to execute a function
   modifier onlyAdminOrOwner () {
@@ -79,9 +79,11 @@ contract reputationToken {
     return true;
   }
 
-  // allows the owner to add an admin
+  // allows the owner to add an admin but also clear an admins issued/burned counts
   function addAdmin(address _newAdmin) public onlyOwner returns (bool success) {
-    return false;
+    admins[_newAdmin] = Admin(true, 0, 0);
+    emit AdminAdded(_newAdmin);
+    return true;
   }
 
   // used to create or edit any interaction standard
