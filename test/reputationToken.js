@@ -1,5 +1,4 @@
 const reputationToken = artifacts.require("reputationToken");
-const reputationController = artifacts.require("reputationController")
 
 /*
  * uncomment accounts to access the test accounts made available by the
@@ -11,15 +10,7 @@ const reputationController = artifacts.require("reputationController")
 contract("reputationToken", function (accounts) {
   let owner = accounts[0];
   let receivingAcc = accounts[1];
-  let newControllerAcc = accounts[2];
   let callingAcc = accounts[5];
-
-  // it('should check the owner vs sender', async function () {
-  //   let repToken = await reputationToken.deployed();
-  //
-  //   console.log("Owner>>>>", await repToken.owner())
-  //   console.log("Controller>>>>>>", await repToken.controller())
-  // });
 
   it("Checks that the contract deploys without errors", async function () {
     await reputationToken.deployed();
@@ -34,20 +25,13 @@ contract("reputationToken", function (accounts) {
     assert.equal(await repToken.granularity(), 1);
   });
 
-  it('should set the controller as the reputationController contract instance', async function () {
-    let repToken = await reputationToken.deployed();
-    let repController = await reputationController.deployed();
-    assert.equal(await repToken.controller(), repController.address, "Reputation Token controller is not correct")
-  });
-
   it('should issue reputation to an account', async function () {
     let repToken = await reputationToken.deployed();
-    let repController = await reputationController.deployed();
 
-    // checks that the revert error is thrown if the issueReputation function is called by anyone but the controller
+    // checks that the revert error is thrown if the issueReputation function is called by anyone but the owner or an admin
     try {
       await repToken.issueReputation.call(owner, 100, { from: callingAcc });
-      throw(new Error("issueReputation function should only be callable by the controller or owner"));
+      throw(new Error("issueReputation function should only be callable by admins or the owner"));
     } catch(error) {
       assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
     }
@@ -60,9 +44,7 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    // tests that the function is callable by the controller smart contract
-    assert.equal(await repToken.issueReputation.call(owner, 100, { from: repController.address }), true,
-        "Function should return true");
+    //TODO: Test that issueReputation is callable by an admin
 
     // tests that the function is callable by the owner/deployer
     assert.equal(await repToken.issueReputation.call(owner, 100, { from: owner }), true,
@@ -81,7 +63,6 @@ contract("reputationToken", function (accounts) {
 
   it('should burn reputation from an account', async function () {
     let repToken = await reputationToken.deployed();
-    let repController = await reputationController.deployed();
 
     // checks that the revert error is thrown if the burnReputation function is called by anyone but the controller
     try {
@@ -100,9 +81,7 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    // tests that the function is callable by the controller smart contract
-    assert.equal(await repToken.burnReputation.call(owner, 100, { from: repController.address }), true,
-        "Function should return true");
+    // TODO: test that the burnReputation function is callabled by an admin
 
     // tests that the function is callable by the owner/deployer
     assert.equal(await repToken.burnReputation.call(owner, 100, { from: owner }), true,
@@ -120,28 +99,4 @@ contract("reputationToken", function (accounts) {
     assert.equal(reputation, 50, "to account should have the correct amount of reputation")
   });
 
-  it('should allow the owner to change the controller', async function () {
-    let repToken = await reputationToken.deployed();
-    let repController = await reputationController.deployed();
-
-    // checks that the revert error is thrown if the changeController function is called by anyone but the owner
-    try {
-      await repToken.changeController.call(receivingAcc, { from: callingAcc });
-      throw(new Error("burnReputation function should only be callable by the owner"));
-    } catch(error) {
-      assert(error.message.indexOf("revert") >= 0,
-          "Error message must contain revert thereby indicating that the function returned an error");
-    }
-
-    assert.equal(await repToken.changeController.call(newControllerAcc, { from: owner }), true,
-        "Function should return true");
-
-    let receipt = await repToken.changeController(newControllerAcc, { from: owner });
-    assert.equal(receipt.logs.length, 1, "An event should be triggered");
-    assert.equal(receipt.logs[0].event, "ControllerChanged", "The event triggered should be an ControllerChanged event");
-    assert.equal(receipt.logs[0].args._newController, newControllerAcc, "The new controller address should be emitted");
-    assert.equal(receipt.logs[0].args._oldController, repController.address, "The old controller should be the correct");
-
-    assert.equal(await repToken.controller(), newControllerAcc, "The new controller should be set");
-  });
 });
