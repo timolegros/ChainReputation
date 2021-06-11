@@ -1,5 +1,5 @@
 const reputationToken = artifacts.require("reputationToken");
-
+const web3 = require("web3-utils")
 /*
  * uncomment accounts to access the test accounts made available by the
  * Ethereum client
@@ -10,7 +10,7 @@ const reputationToken = artifacts.require("reputationToken");
 contract("reputationToken", function (accounts) {
   let owner = accounts[0];
   let receivingAcc = accounts[1];
-  let callingAcc = accounts[5];
+  let callingAcc = accounts[5]; // used as the 'from' address when testing function call from non-owner/admin account
   let newAdmin = accounts[2];
 
   it("Checks that the contract deploys without errors", async function () {
@@ -20,9 +20,9 @@ contract("reputationToken", function (accounts) {
 
   it('should set the token name, symbol, and granularity', async function () {
     let repToken = await reputationToken.deployed();
-    assert.equal(await repToken.name(), "Reputation");
-    assert.equal(await repToken.symbol(), "Rep");
-    assert.equal(await repToken.version(), "v1");
+    assert.equal(cleanBytes(await repToken.name()), "Reputation");
+    assert.equal(cleanBytes(await repToken.symbol()), "Rep");
+    assert.equal(cleanBytes(await repToken.version()), "v1.0.0");
     assert.equal(await repToken.granularity(), 1);
   });
 
@@ -68,7 +68,8 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    //TODO: Test that issueReputation is callable by an admin
+    assert.equal(await repToken.issueReputation.call(owner, 100, { from: newAdmin }), true,
+        "Function should return true")
 
     // tests that the function is callable by the owner/deployer
     assert.equal(await repToken.issueReputation.call(owner, 100, { from: owner }), true,
@@ -78,7 +79,7 @@ contract("reputationToken", function (accounts) {
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "Issued", "The event triggered should be an Issued event");
     assert.equal(receipt.logs[0].args._to, owner, "Should be the correct to account");
-    assert.equal(receipt.logs[0].args.amount, 100, "Should emit the correct amount of reputation")
+    assert.equal(receipt.logs[0].args._amount, 100, "Should emit the correct amount of reputation")
 
     let reputation = await repToken.reputationOf(owner, { from: owner })
     assert.equal(reputation, 100, "to account should have the correct amount of reputation")
@@ -105,7 +106,8 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    // TODO: test that the burnReputation function is callabled by an admin
+    assert.equal(await repToken.burnReputation.call(owner, 100, { from: newAdmin }), true,
+        "Function should return true");
 
     // tests that the function is callable by the owner/deployer
     assert.equal(await repToken.burnReputation.call(owner, 100, { from: owner }), true,
@@ -117,10 +119,53 @@ contract("reputationToken", function (accounts) {
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "Burned", "The event triggered should be an Burned event");
     assert.equal(receipt.logs[0].args._from, receivingAcc, "Should be the correct from account");
-    assert.equal(receipt.logs[0].args.amount, 50, "Should emit the correct amount of reputation")
+    assert.equal(receipt.logs[0].args._amount, 50, "Should emit the correct amount of reputation")
 
     let reputation = await repToken.reputationOf(receivingAcc, { from: owner })
     assert.equal(reputation, 50, "to account should have the correct amount of reputation")
   });
 
+  it('should allow the owner to create an interaction standard', async function () {
+    let repToken = await reputationToken.deployed();
+
+    try {
+      await repToken.manageStandard.call(web3.fromAscii("TestStandard"), 10, { from: callingAcc });
+      throw(new Error("Function should throw an error when called by anyone but the owner"));
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
+    }
+
+    assert.equal(await repToken.manageStandard.call(web3.fromAscii("TestStandard"), 10, { from: owner }), true,
+        "Function should allow the owner to use it and return true if successful")
+
+    let receipt = await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "StandardModified", "The event should be a StandardModified event");
+    assert.equal(cleanBytes(receipt.logs[0].args._name), "TestStandard",
+        "Should emit the correct name");
+    assert.equal(receipt.logs[0].args._repAmount, 10, "Should emit the correct amount of reputation");
+    assert.equal(receipt.logs[0].args._destroyed, false, "Should emit destroyed as false");
+
+    let testStandard = await repToken.standards(web3.fromAscii("TestStandard"), { from: owner });
+
+    // let temp = await repToken.getStandardMisc.call(web3.fromAscii("TestStandard"), "hello")
+
+    // if interactionStandard struct contains more than 1 element that access elements specifically
+    assert.equal(await testStandard.toNumber(), 10, "Standard should have the correct repAmount");
+
+    // calls manageStandard again to test standardNames array functionality
+    await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
+    let standardNamesArray = await repToken.getStandardNames.call()
+    assert(standardNamesArray.length === 1, "Only a single name should be in the list")
+    assert.equal(cleanBytes(standardNamesArray[0]) === "TestStandard", true, "The standard name should be in the array");
+  });
+
+  it('should allow the owner to delete an interaction standard', async function () {
+
+  });
+
 });
+
+function cleanBytes(string) {
+  return web3.toAscii(string).replace(/\0.*$/g,'')
+}
