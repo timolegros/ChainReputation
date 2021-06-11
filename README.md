@@ -4,7 +4,7 @@ reputation system on Edgeware. The **REPU** token can only be issued and burned 
 trusted entities that follow the agreed upon standards (hence the term 
 semi-decentralized).
 
-A reputation token like REPU has many use cases in community governed chains and
+A reputation token like **REPU** has many use cases in community governed chains and
 blockchain communities in general. For forums and governance platforms like
 Commonwealth it can be used to reward users who contribute to the growth of the 
 community as well as a means to moderate and prevent trolling. Reputation in chain 
