@@ -12,6 +12,7 @@ contract("reputationToken", function (accounts) {
   let receivingAcc = accounts[1];
   let callingAcc = accounts[5]; // used as the 'from' address when testing function call from non-owner/admin account
   let newAdmin = accounts[2];
+  let newContract = accounts[3];
 
   it("Checks that the contract deploys without errors", async function () {
     await reputationToken.deployed();
@@ -49,6 +50,30 @@ contract("reputationToken", function (accounts) {
     assert.equal(await admin.totalRepBurned, 0, "The new admin should have 0 total reputation burned");
   });
 
+  it('should allow the owner to add contracts', async function () {
+    let repToken = await reputationToken.deployed();
+    // checks that addContract function is not callable by anyone but the owner
+    try {
+      await repToken.addContract.call(newContract, web3.fromAscii("TestContract"), { from: callingAcc });
+      throw(new Error("addContract should only be callable by the owner"));
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
+    }
+
+    assert.equal(await repToken.addContract.call(newContract, web3.fromAscii("TestContract"),
+        { from: owner }), true, "Function should return true");
+
+    let receipt = await repToken.addContract(newContract, web3.fromAscii("TestContract"), { from: owner });
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "ContractAdded", "The event triggered should be a ContractAdded event");
+    assert.equal(receipt.logs[0].args._newContract, newContract, "The new contract address emitted should be correct");
+    assert.equal(cleanBytes(receipt.logs[0].args._name), "TestContract", "Emitted contract name should be TestContract")
+
+    let contract = await repToken.contracts(newContract);
+    assert.equal(await contract.authorized, true, "The new contract should be authorized to issue and burn reputation tokens");
+    assert.equal(cleanBytes(await contract.name), "TestContract", "The new contract name should be TestContract");
+  });
+
   it('should issue reputation to an account', async function () {
     let repToken = await reputationToken.deployed();
 
@@ -68,7 +93,7 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    assert.equal(await repToken.issueReputation.call(owner, 100, { from: newAdmin }), true,
+    assert.equal(await repToken.issueReputation.call(owner, 100, { from: newContract }), true,
         "Function should return true")
 
     // tests that the function is callable by the owner/deployer
@@ -106,7 +131,7 @@ contract("reputationToken", function (accounts) {
       assert(error.code === "INVALID_ARGUMENT", "Ensures the amount argument cannot be negative")
     }
 
-    assert.equal(await repToken.burnReputation.call(owner, 100, { from: newAdmin }), true,
+    assert.equal(await repToken.burnReputation.call(owner, 100, { from: newContract }), true,
         "Function should return true");
 
     // tests that the function is callable by the owner/deployer
@@ -125,7 +150,7 @@ contract("reputationToken", function (accounts) {
     assert.equal(reputation, 50, "to account should have the correct amount of reputation")
   });
 
-  it('should allow the owner to create an interaction standard', async function () {
+  it('should allow the owner to manage interaction standards', async function () {
     let repToken = await reputationToken.deployed();
 
     try {
@@ -160,8 +185,13 @@ contract("reputationToken", function (accounts) {
     assert.equal(cleanBytes(standardNamesArray[0]) === "TestStandard", true, "The standard name should be in the array");
   });
 
-  it('should allow the owner to delete an interaction standard', async function () {
 
+  it('should allow admins to update a single reputation', function () {
+    assert.fail()
+  });
+
+  it('should allow admins to batch update reputation', function () {
+    assert.fail()
   });
 
 });
