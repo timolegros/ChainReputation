@@ -11,6 +11,10 @@ community as well as a means to moderate and prevent trolling. Reputation in cha
 based P2P lending platforms allows lenders to mitigate risk by giving them a measure
 of "trustworthiness".
 
+The token has a controlling owner which ideally should be a democratically elected council
+such as the Edgeware Council. This owner is able to add entities and has number of other privileges.
+A system where there is no controlling owner is also possible.
+
 # Standards
 ## Issue Reputation
 ### Forum/Thread Post Like/Upvote

@@ -168,7 +168,7 @@ contract reputationToken {
     require(amount != 0 && standards[_standardName].destroyed != true);
     if (amount < 0) {
       uint256 uAmount = uint256(amount * -1);
-      require(reputationOf[_to] - uAmount > 0);
+      require(reputationOf[_to] - uAmount >= 0);
       reputationOf[_to] -= uAmount;
       admins[msg.sender].totalRepBurned += uAmount;
       emit Burned(_to, uAmount);

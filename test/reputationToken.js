@@ -13,6 +13,7 @@ contract("reputationToken", function (accounts) {
   let receivingAccTwo = accounts[4];
   let callingAcc = accounts[5]; // used as the 'from' address when testing function call from non-owner/admin account
   let newAdmin = accounts[2];
+  let newAdminTwo = accounts[6];
   let newContract = accounts[3];
 
   it("Checks that the contract deploys without errors", async function () {
@@ -202,23 +203,25 @@ contract("reputationToken", function (accounts) {
   it('should allow admins to update a single reputation', async function () {
     let repToken = await reputationToken.deployed();
 
-    await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
-    await repToken.manageStandard(web3.fromAscii("DestroyedStandard"), 0, { from: owner});
+    await repToken.addAdmin(newAdminTwo, { from: owner });
+    await repToken.manageStandard(web3.fromAscii("PositiveStandard"), 10, { from: owner });
+    await repToken.manageStandard(web3.fromAscii("DestroyedStandard"), 0, { from: owner });
+    await repToken.manageStandard(web3.fromAscii("NegativeStandard"), -10, { from: owner });
 
     // tests that only owner/admin can use the applySingleStandard function
     try {
-      await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"), { from: callingAcc });
+      await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"), { from: callingAcc });
       throw(new Error("Function should throw an error when called by anyone but the owner"));
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
     // tests that the owner can call the function and that it returns true
-    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"),
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"),
         { from: owner }), true, "Function should allow the owner to use it and return true if successful");
 
     // tests that any admin can call the function and that it returns true
-    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"),
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"),
         { from: newAdmin }), true, "Function should allow the admin to use it and return true if successful");
 
     try {
@@ -227,6 +230,28 @@ contract("reputationToken", function (accounts) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
+    let receipt = await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("PositiveStandard"),
+        { from: newAdminTwo });
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "Issued", "The event triggered should be an Issued event");
+    assert.equal(receipt.logs[0].args._to, receivingAccTwo, "The receiving address emitted should be correct");
+    assert.equal(receipt.logs[0].args._amount, 10, "The emitted issued amount should be 10");
+
+    assert.equal(await repToken.reputationOf(receivingAccTwo, { from: owner }), 10, "User should have 10 reputation");
+
+    receipt = await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("NegativeStandard"),
+        { from: newAdminTwo });
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "Burned", "The event triggered should be a Burned event");
+    assert.equal(receipt.logs[0].args._from, receivingAccTwo, "The receiving address emitted should be correct");
+    assert.equal(receipt.logs[0].args._amount, 10, "The emitted burned amount should be 10");
+
+    assert.equal(await repToken.reputationOf(receivingAccTwo, { from: owner }), 0, "User should have 0 reputation");
+
+    let admin = await repToken.admins(newAdminTwo, { from: owner });
+    assert.equal(await admin.authorized, true, "Admin should be authorized");
+    assert.equal(await admin.totalRepIssued.toNumber(), 10, "Admin should have issued a total of 10 reputation");
+    assert.equal(await admin.totalRepBurned.toNumber(), 10, "Admin should have burned a total of 10 reputation");
 
   });
 
