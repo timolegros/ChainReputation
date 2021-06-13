@@ -29,6 +29,7 @@ contract reputationToken {
   // the mapping is there to store any miscellaneous data that may need to be associated with standards in the future
   struct InteractionStandard {
     int256 repAmount; // can be negative for negative interactions such as being banned on a forum
+    bool destroyed; // used to indicate if the standard has been "deleted"
     //    mapping(bytes32 => bytes32) misc;  // TODO: decide whether this is necessary
   }
 
@@ -133,22 +134,30 @@ contract reputationToken {
 
   // used to create, edit, or delete any interaction standard
   function manageStandard(bytes32 _name, int256 _repAmount) external onlyOwner returns (bool success) {
-    if (_repAmount != 0) {
-      // check if _name is in standardNames array -- if it is set flag to true
-      bool flag = false;
-      for (uint256 i=0; i < standardNames.length; i++) {
-        if (_name == standardNames[i]) {
-          flag = true;
-          break;
-        }
-      }
-      // if flag is false at this point then _name is not in standardNames so add it
-      if (flag == false) {
-        standardNames.push(_name);
+
+    // check if _name is in standardNames array -- if it is set nameIndex to the its index in the array
+    uint16 nameIndex = 0;
+    for (uint16 i=0; i < standardNames.length; i++) {
+      if (_name == standardNames[i]) {
+        nameIndex = i + 1;
+        break;
       }
     }
 
-    standards[_name].repAmount = _repAmount;
+    if (_repAmount != 0) {
+      standards[_name].repAmount = _repAmount;
+      standards[_name].destroyed = false;
+      // if the nameIndex is still 0 then the name is not already in the array
+      if (nameIndex == 0) {
+        standardNames.push(_name);
+      }
+    } else {
+      standards[_name].repAmount = 0;
+      standards[_name].destroyed = true;
+      if (nameIndex > 0) {
+        delete standardNames[nameIndex - 1];
+      }
+    }
 
     emit StandardModified(_name, _repAmount, _repAmount == 0);
     return true;
@@ -156,14 +165,16 @@ contract reputationToken {
 
   function applySingleStandard(address _to, bytes32 _standardName) public onlyAdmin returns (bool) {
     int256 amount = standards[_standardName].repAmount;
-    require(amount != 0);
+    require(amount != 0 && standards[_standardName].destroyed != true);
     if (amount < 0) {
       uint256 uAmount = uint256(amount * -1);
       require(reputationOf[_to] - uAmount > 0);
       reputationOf[_to] -= uAmount;
+      admins[msg.sender].totalRepBurned += uAmount;
       emit Burned(_to, uAmount);
     } else {
       reputationOf[_to] += uint256(amount);
+      admins[msg.sender].totalRepIssued += uint256(amount);
       emit Issued(_to, uint256(amount));
     }
     return true;
@@ -177,7 +188,6 @@ contract reputationToken {
     return true;
   }
 
-//  function appleBatchStandard()
   // TODO: devise method for transferring all reputation from one account to another (approval system?)
 
   function destroy() public onlyOwner {

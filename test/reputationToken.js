@@ -10,6 +10,7 @@ const web3 = require("web3-utils")
 contract("reputationToken", function (accounts) {
   let owner = accounts[0];
   let receivingAcc = accounts[1];
+  let receivingAccTwo = accounts[4];
   let callingAcc = accounts[5]; // used as the 'from' address when testing function call from non-owner/admin account
   let newAdmin = accounts[2];
   let newContract = accounts[3];
@@ -160,10 +161,15 @@ contract("reputationToken", function (accounts) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
+    // tests that the owner can call the function and that it returns true
     assert.equal(await repToken.manageStandard.call(web3.fromAscii("TestStandard"), 10, { from: owner }), true,
         "Function should allow the owner to use it and return true if successful")
 
+    // tests adding a standard
     let receipt = await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
+    let standardNamesArray = await repToken.getStandardNames.call();
+    assert(standardNamesArray.length === 1, "Only a single name should be in the list")
+    assert.equal(cleanBytes(standardNamesArray[0]) === "TestStandard", true, "The standard name should be in the array");
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "StandardModified", "The event should be a StandardModified event");
     assert.equal(cleanBytes(receipt.logs[0].args._name), "TestStandard",
@@ -171,26 +177,60 @@ contract("reputationToken", function (accounts) {
     assert.equal(receipt.logs[0].args._repAmount, 10, "Should emit the correct amount of reputation");
     assert.equal(receipt.logs[0].args._destroyed, false, "Should emit destroyed as false");
 
+    // checks if the standards mapping correctly stores the new TestStandard
     let testStandard = await repToken.standards(web3.fromAscii("TestStandard"), { from: owner });
+    assert.equal(await testStandard.repAmount, 10, "Standard should have the correct repAmount");
+    assert.equal(await testStandard.destroyed, false, "Standard should not be marked as destroyed");
 
-    // let temp = await repToken.getStandardMisc.call(web3.fromAscii("TestStandard"), "hello")
+    // tests deleting a standard
+    receipt = await repToken.manageStandard(web3.fromAscii("TestStandard"), 0, { from: owner });
+    standardNamesArray = await repToken.getStandardNames.call();
+    assert(standardNamesArray.length === 1, "Array length should be 1");
+    assert(cleanBytes(standardNamesArray[0]) === "", "The standard name should be null in the array")
+    assert.equal(receipt.logs.length, 1, "An event should be triggered");
+    assert.equal(receipt.logs[0].event, "StandardModified", "The event should be a StandardModified event");
+    assert.equal(cleanBytes(receipt.logs[0].args._name), "TestStandard",
+        "Should emit the correct name");
+    assert.equal(receipt.logs[0].args._repAmount, 0, "Should emit the correct amount of reputation");
+    assert.equal(receipt.logs[0].args._destroyed, true, "Should emit destroyed as true");
 
-    // if interactionStandard struct contains more than 1 element that access elements specifically
-    assert.equal(await testStandard.toNumber(), 10, "Standard should have the correct repAmount");
+    testStandard = await repToken.standards(web3.fromAscii("TestStandard"), { from: owner });
+    assert.equal(await testStandard.repAmount, 0, "Standard should be considered deleted")
+    assert.equal(await testStandard.destroyed, true, "Standard should be marked as destroyed")
+  });
 
-    // calls manageStandard again to test standardNames array functionality
+  it('should allow admins to update a single reputation', async function () {
+    let repToken = await reputationToken.deployed();
+
     await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
-    let standardNamesArray = await repToken.getStandardNames.call()
-    assert(standardNamesArray.length === 1, "Only a single name should be in the list")
-    assert.equal(cleanBytes(standardNamesArray[0]) === "TestStandard", true, "The standard name should be in the array");
+    await repToken.manageStandard(web3.fromAscii("DestroyedStandard"), 0, { from: owner});
+
+    // tests that only owner/admin can use the applySingleStandard function
+    try {
+      await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"), { from: callingAcc });
+      throw(new Error("Function should throw an error when called by anyone but the owner"));
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
+    }
+
+    // tests that the owner can call the function and that it returns true
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"),
+        { from: owner }), true, "Function should allow the owner to use it and return true if successful");
+
+    // tests that any admin can call the function and that it returns true
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("TestStandard"),
+        { from: newAdmin }), true, "Function should allow the admin to use it and return true if successful");
+
+    try {
+      await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("DestroyedStandard"), { from: owner});
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
+    }
+
+
   });
 
-
-  it('should allow admins to update a single reputation', function () {
-    assert.fail()
-  });
-
-  it('should allow admins to batch update reputation', function () {
+  it('should allow admins to batch update reputation', async function () {
     assert.fail()
   });
 
