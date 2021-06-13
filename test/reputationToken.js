@@ -24,7 +24,7 @@ contract("reputationToken", function (accounts) {
   it('should set the token name, symbol, and granularity', async function () {
     let repToken = await reputationToken.deployed();
     assert.equal(cleanBytes(await repToken.name()), "Reputation");
-    assert.equal(cleanBytes(await repToken.symbol()), "Rep");
+    assert.equal(cleanBytes(await repToken.symbol()), "REPU");
     assert.equal(cleanBytes(await repToken.version()), "v1.0.0");
     assert.equal(await repToken.granularity(), 1);
   });
@@ -256,11 +256,29 @@ contract("reputationToken", function (accounts) {
   });
 
   it('should allow admins to batch update reputation', async function () {
-    assert.fail()
-  });
+    let repToken = await reputationToken.deployed();
+    console.log(">>>>>>>>", convBytes32("TestStandard"))
+    // tests that only owner/admin can use the applyBatchStandard function
+    try {
+      await repToken.applyBatchStandard.call([{to: receivingAcc, standardName: convBytes32("TestStandard")},
+            {to: receivingAcc, standardName: convBytes32("TestStandard")}], { from: callingAcc });
+      throw(new Error("Function should throw an error when called by anyone but the owner and admin"));
+    } catch (error) {
+      console.log(error)
+      assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
+    }
 
+    await repToken.applyBatchStandard.call([[receivingAcc, "PositiveStandard"], [receivingAcc, "PositiveStandard"]],
+        { from: owner });
+
+    assert.equal(await repToken.reputationOf(receivingAcc), 70, "The receiving account should have 70 reputation");
+  });
 });
 
 function cleanBytes(string) {
   return web3.toAscii(string).replace(/\0.*$/g,'')
+}
+
+function convBytes32(string) {
+  return web3.padRight(web3.fromAscii(string), 34)
 }

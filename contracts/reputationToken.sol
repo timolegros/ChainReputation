@@ -3,7 +3,7 @@ pragma solidity >=0.4.22 <0.9.0;
 
 contract reputationToken {
   bytes10 public name = "Reputation";
-  bytes3 public symbol = "Rep";
+  bytes4 public symbol = "REPU";
   bytes9 public version = "v1.0.0";
 
   uint256 public granularity = 1;

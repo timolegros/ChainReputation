@@ -13,7 +13,8 @@ of "trustworthiness".
 
 The token has a controlling owner which ideally should be a democratically elected council
 such as the Edgeware Council. This owner is able to add entities and has number of other privileges.
-A system where there is no controlling owner is also possible.
+A system where there is no controlling owner is also possible. For example, the contract could
+require that 75% of the admins agree to adopt a new standard instead of the owner adding it.
 
 # Standards
 ## Issue Reputation
