@@ -49,6 +49,11 @@ contract reputationToken {
     bytes32 standardName;
   }
 
+  struct UserBatch {
+    address to;
+    bytes32[] stdNames;
+  }
+
   // Emitted when the contract generates and assigns and mount of reputation to an account
   event Issued(address indexed _to, uint256 _amount);
 
@@ -165,7 +170,13 @@ contract reputationToken {
 
   function applySingleStandard(address _to, bytes32 _standardName) public onlyAdmin returns (bool) {
     int256 amount = standards[_standardName].repAmount;
-    require(amount != 0 && standards[_standardName].destroyed != true);
+    if (amount == 0 || standards[_standardName].destroyed == true) {
+      revert (string(abi.encodePacked(
+          "Cannot apply ", bytes32ToString(_standardName), " to address: ", toString(_to)
+        ))
+      );
+    }
+//    require(amount != 0 || standards[_standardName].destroyed != true);
     if (amount < 0) {
       uint256 uAmount = uint256(amount * -1);
       require(reputationOf[_to] - uAmount >= 0);
@@ -180,23 +191,53 @@ contract reputationToken {
     return true;
   }
 
+  function userBatch(UserBatch[] memory _batch) public onlyAdmin returns (bool) {
+    return true;
+  }
+
+  // TODO: Group by users where each user has a to address and then an array of standard names to apply
   function applyBatchStandard(BatchStandards[] memory _batch) public onlyAdmin returns (bool) {
 //    return bytesToBytes32(_batch[0].standardName, 0);
     for (uint256 i=0; i < _batch.length; i++) {
-//      applySingleStandard(_batch[i].to, bytesToBytes32(_batch[i].standardName));
       applySingleStandard(_batch[i].to, _batch[i].standardName);
-      // TODO: error handling
     }
     return true;
   }
 
   // TODO: devise method for transferring all reputation from one account to another (approval system?)
 
+  function toString(address account) private pure returns (string memory) {
+    return toString(abi.encodePacked(account));
+  }
 
+  function toString(bytes memory data) private pure returns (string memory) {
+    bytes memory alphabet = "0123456789abcdef";
+
+    bytes memory str = new bytes(2 + data.length * 2);
+    str[0] = "0";
+    str[1] = "x";
+    for (uint i = 0; i < data.length; i++) {
+      str[2+i*2] = alphabet[uint(uint8(data[i] >> 4))];
+      str[3+i*2] = alphabet[uint(uint8(data[i] & 0x0f))];
+    }
+    return string(str);
+  }
+
+  function bytes32ToString(bytes32 _bytes32) private pure returns (string memory) {
+    uint8 i = 0;
+    while(i < 32 && _bytes32[i] != 0) {
+      i++;
+    }
+    bytes memory bytesArray = new bytes(i);
+    for (i = 0; i < 32 && _bytes32[i] != 0; i++) {
+      bytesArray[i] = _bytes32[i];
+    }
+    return string(bytesArray);
+  }
 
   function destroy() public onlyOwner {
     selfdestruct(payable(owner));
   }
 
-  receive() external payable {}
+//  receive() external payable {}
 }

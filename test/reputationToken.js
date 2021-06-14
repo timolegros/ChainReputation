@@ -225,6 +225,17 @@ contract("reputationToken", function (accounts) {
         { from: newAdmin }), true, "Function should allow the admin to use it and return true if successful");
 
     try {
+      await repToken.applySingleStandard.call(receivingAccTwo, web3.asciiToHex("DestroyedStandard"),
+          { from: owner });
+      assert.fail()
+    } catch (error) {
+      assert.equal(error.message.includes(receivingAccTwo.toLowerCase()), true,
+          "Error message must contain the to account address")
+      assert.equal(error.message.includes("DestroyedStandard"), true,
+          "Error message must contain the name of the standard")
+    }
+
+    try {
       await repToken.applySingleStandard(receivingAccTwo, web3.asciiToHex("DestroyedStandard"), { from: owner});
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
@@ -267,7 +278,7 @@ contract("reputationToken", function (accounts) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
-    // checks that the function can be called by any admin or the owner
+    // // checks that the function can be called by any admin or the owner
     assert.isTrue(await repToken.applyBatchStandard.call([
         {to: receivingAcc, standardName: convToBytes32("PositiveStandard")},
         {to: receivingAcc, standardName: convToBytes32("PositiveStandard")}], { from: owner }))
@@ -288,6 +299,8 @@ contract("reputationToken", function (accounts) {
         {to: receivingAcc, standardName: convToBytes32("NegativeStandard")}], { from: owner })
     assert.equal(await repToken.reputationOf(receivingAcc), 40, { from: owner });
   });
+
+
 });
 
 function cleanBytes(string) {
