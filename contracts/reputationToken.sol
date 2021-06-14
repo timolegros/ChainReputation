@@ -33,26 +33,40 @@ contract reputationToken {
     //    mapping(bytes32 => bytes32) misc;  // TODO: decide whether this is necessary
   }
 
+  // stores admin information
   struct Admin {
     bool authorized;
     uint256 totalRepIssued;
     uint256 totalRepBurned;
   }
 
+  // stores information on an external contract that has the rights to issue and burn reputation
   struct ExternalContract {
     bool authorized;
     bytes32 name;
   }
 
+  // regular batching
+  // used when batching multiple single standards/users together
   struct BatchStandards {
     address to;
     bytes32 standardName;
   }
 
+  // used in user batching to store the standard names and the number of times that standard should be applied to a user
+  struct StandardCount {
+    bytes32 name;
+    uint count;
+  }
+
+  // user optimized batching
+  // struct that represents a single user with their address and the standards plus their frequency
   struct UserBatch {
     address to;
-    bytes32[] stdNames;
+    StandardCount[] counts;
   }
+
+
 
   // Emitted when the contract generates and assigns and mount of reputation to an account
   event Issued(address indexed _to, uint256 _amount);
@@ -191,7 +205,43 @@ contract reputationToken {
     return true;
   }
 
-  function userBatch(UserBatch[] memory _batch) public onlyAdmin returns (bool) {
+  // The optimized method of batching by grouping standards under different users. The comment below displays what the
+  // format of the data should be. This method allows storing reputation data on a database and periodically updating
+  // the smart contract in order to reduce the total number of transactions.
+  // to: address to give reputation to
+  // counts: array containing the standards (and their amount) to apply to a specific user
+  // name: name of the standard
+  // count: the number of time this standard should be applied for the to address
+  /*
+    [{to:, counts: [{name: "", count: 0}, {name: "", count: 0}]},
+    {to:, counts: [{name: "", count: 0}, {name: "", count: 0}]}]
+  */
+  function applyUserBatchStandard(UserBatch[] memory _batch) public onlyAdmin returns (bool) {
+    // loop through the users
+    for (uint256 i=0; i < _batch.length; i++) {
+      int256 total;
+      UserBatch memory user = _batch[i];
+      StandardCount memory currentStandard;
+      InteractionStandard memory storedStandard;
+      bytes32 name;
+      // loop through the standards to apply to each user
+      for (uint256 j=0; j < user.counts.length; j++) {
+        currentStandard = user.counts[j];
+        storedStandard = standards[currentStandard.name];
+        if (storedStandard.repAmount == 0 || storedStandard.destroyed == true) continue;
+        total += storedStandard.repAmount * int256(currentStandard.count);
+      }
+
+      if (total < 0) {
+        if (reputationOf[user.to] - uint256(total * -1) >= 0) {
+          reputationOf[user.to] -= uint256(total * -1);
+        } else {
+          reputationOf[user.to] = 0;
+        }
+      } else if (total > 0) {
+        reputationOf[user.to] += uint256(total);
+      }
+    }
     return true;
   }
 

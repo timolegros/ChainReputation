@@ -298,9 +298,49 @@ contract("reputationToken", function (accounts) {
         {to: receivingAcc, standardName: convToBytes32("NegativeStandard")},
         {to: receivingAcc, standardName: convToBytes32("NegativeStandard")}], { from: owner })
     assert.equal(await repToken.reputationOf(receivingAcc), 40, { from: owner });
+    // at this point the receivingAcc has 40 reputation
   });
 
+  it('should allow admins and owners to make reputation updates using user batches', async function () {
+    let repToken = await reputationToken.deployed();
+    let data = [
+      {
+        to: receivingAcc,
+        counts: [
+          { name: convToBytes32("PositiveStandard"), count: 8},
+          { name: convToBytes32("NegativeStandard"), count: 2}
+        ]
+      },
+      { to: receivingAccTwo,
+        counts: [
+          { name: convToBytes32("PositiveStandard"), count: 30},
+          { name: convToBytes32("PositiveStandard"), count: 30},
+          { name: convToBytes32("NegativeStandard"), count: 20}
+        ]
+      }
+    ]
 
+    // tests that only owner/admins can use the applyUserBatchStandard function
+    try {
+      await repToken.applyUserBatchStandard.call(data, { from: callingAcc });
+      throw(new Error("Function should throw an error when called by anyone but the owner and admin"));
+    } catch (error) {
+      assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
+    }
+
+    assert.isTrue(
+        await repToken.applyUserBatchStandard.call(data, { from: owner }),
+        "Function should all owners to call it and return true");
+    assert.isTrue(
+        await repToken.applyUserBatchStandard.call(data, { from: newAdmin }),
+        "Function should all owners to call it and return true");
+    assert.isTrue(
+        await repToken.applyUserBatchStandard.call(data, { from: newAdminTwo }),
+        "Function should all owners to call it and return true");
+
+    await repToken.applyUserBatchStandard(data, { from: newAdminTwo });
+    assert.equal((await repToken.reputationOf(receivingAcc)).toNumber(), 100, { from: owner });
+  });
 });
 
 function cleanBytes(string) {
