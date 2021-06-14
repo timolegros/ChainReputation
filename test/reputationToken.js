@@ -340,6 +340,7 @@ contract("reputationToken", function (accounts) {
 
     await repToken.applyUserBatchStandard(data, { from: newAdminTwo });
     assert.equal((await repToken.reputationOf(receivingAcc)).toNumber(), 100, { from: owner });
+    assert.equal((await repToken.reputationOf(receivingAccTwo)).toNumber(), 400, { from: owner });
   });
 });
 

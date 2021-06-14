@@ -182,6 +182,7 @@ contract reputationToken {
     return true;
   }
 
+  // TODO: decide whether to revert or ignore when standard == destroyed or amount is 0
   function applySingleStandard(address _to, bytes32 _standardName) public onlyAdmin returns (bool) {
     int256 amount = standards[_standardName].repAmount;
     if (amount == 0 || standards[_standardName].destroyed == true) {
@@ -190,7 +191,6 @@ contract reputationToken {
         ))
       );
     }
-//    require(amount != 0 || standards[_standardName].destroyed != true);
     if (amount < 0) {
       uint256 uAmount = uint256(amount * -1);
       require(reputationOf[_to] - uAmount >= 0);
@@ -205,7 +205,7 @@ contract reputationToken {
     return true;
   }
 
-  // The optimized method of batching by grouping standards under different users. The comment below displays what the
+  // The optimized method of batching by grouping standards under users. The comment below displays what the
   // format of the data should be. This method allows storing reputation data on a database and periodically updating
   // the smart contract in order to reduce the total number of transactions.
   // to: address to give reputation to
@@ -245,7 +245,6 @@ contract reputationToken {
     return true;
   }
 
-  // TODO: Group by users where each user has a to address and then an array of standard names to apply
   function applyBatchStandard(BatchStandards[] memory _batch) public onlyAdmin returns (bool) {
 //    return bytesToBytes32(_batch[0].standardName, 0);
     for (uint256 i=0; i < _batch.length; i++) {
