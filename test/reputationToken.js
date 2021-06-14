@@ -56,16 +56,16 @@ contract("reputationToken", function (accounts) {
     let repToken = await reputationToken.deployed();
     // checks that addContract function is not callable by anyone but the owner
     try {
-      await repToken.addContract.call(newContract, web3.fromAscii("TestContract"), { from: callingAcc });
+      await repToken.addContract.call(newContract, web3.asciiToHex("TestContract"), { from: callingAcc });
       throw(new Error("addContract should only be callable by the owner"));
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
     }
 
-    assert.equal(await repToken.addContract.call(newContract, web3.fromAscii("TestContract"),
+    assert.equal(await repToken.addContract.call(newContract, web3.asciiToHex("TestContract"),
         { from: owner }), true, "Function should return true");
 
-    let receipt = await repToken.addContract(newContract, web3.fromAscii("TestContract"), { from: owner });
+    let receipt = await repToken.addContract(newContract, web3.asciiToHex("TestContract"), { from: owner });
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "ContractAdded", "The event triggered should be a ContractAdded event");
     assert.equal(receipt.logs[0].args._newContract, newContract, "The new contract address emitted should be correct");
@@ -156,18 +156,18 @@ contract("reputationToken", function (accounts) {
     let repToken = await reputationToken.deployed();
 
     try {
-      await repToken.manageStandard.call(web3.fromAscii("TestStandard"), 10, { from: callingAcc });
+      await repToken.manageStandard.call(web3.asciiToHex("TestStandard"), 10, { from: callingAcc });
       throw(new Error("Function should throw an error when called by anyone but the owner"));
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
     // tests that the owner can call the function and that it returns true
-    assert.equal(await repToken.manageStandard.call(web3.fromAscii("TestStandard"), 10, { from: owner }), true,
+    assert.equal(await repToken.manageStandard.call(web3.asciiToHex("TestStandard"), 10, { from: owner }), true,
         "Function should allow the owner to use it and return true if successful")
 
     // tests adding a standard
-    let receipt = await repToken.manageStandard(web3.fromAscii("TestStandard"), 10, { from: owner });
+    let receipt = await repToken.manageStandard(web3.asciiToHex("TestStandard"), 10, { from: owner });
     let standardNamesArray = await repToken.getStandardNames.call();
     assert(standardNamesArray.length === 1, "Only a single name should be in the list")
     assert.equal(cleanBytes(standardNamesArray[0]) === "TestStandard", true, "The standard name should be in the array");
@@ -179,12 +179,12 @@ contract("reputationToken", function (accounts) {
     assert.equal(receipt.logs[0].args._destroyed, false, "Should emit destroyed as false");
 
     // checks if the standards mapping correctly stores the new TestStandard
-    let testStandard = await repToken.standards(web3.fromAscii("TestStandard"), { from: owner });
+    let testStandard = await repToken.standards(web3.asciiToHex("TestStandard"), { from: owner });
     assert.equal(await testStandard.repAmount, 10, "Standard should have the correct repAmount");
     assert.equal(await testStandard.destroyed, false, "Standard should not be marked as destroyed");
 
     // tests deleting a standard
-    receipt = await repToken.manageStandard(web3.fromAscii("TestStandard"), 0, { from: owner });
+    receipt = await repToken.manageStandard(web3.asciiToHex("TestStandard"), 0, { from: owner });
     standardNamesArray = await repToken.getStandardNames.call();
     assert(standardNamesArray.length === 1, "Array length should be 1");
     assert(cleanBytes(standardNamesArray[0]) === "", "The standard name should be null in the array")
@@ -195,7 +195,7 @@ contract("reputationToken", function (accounts) {
     assert.equal(receipt.logs[0].args._repAmount, 0, "Should emit the correct amount of reputation");
     assert.equal(receipt.logs[0].args._destroyed, true, "Should emit destroyed as true");
 
-    testStandard = await repToken.standards(web3.fromAscii("TestStandard"), { from: owner });
+    testStandard = await repToken.standards(web3.asciiToHex("TestStandard"), { from: owner });
     assert.equal(await testStandard.repAmount, 0, "Standard should be considered deleted")
     assert.equal(await testStandard.destroyed, true, "Standard should be marked as destroyed")
   });
@@ -204,33 +204,33 @@ contract("reputationToken", function (accounts) {
     let repToken = await reputationToken.deployed();
 
     await repToken.addAdmin(newAdminTwo, { from: owner });
-    await repToken.manageStandard(web3.fromAscii("PositiveStandard"), 10, { from: owner });
-    await repToken.manageStandard(web3.fromAscii("DestroyedStandard"), 0, { from: owner });
-    await repToken.manageStandard(web3.fromAscii("NegativeStandard"), -10, { from: owner });
+    await repToken.manageStandard(web3.asciiToHex("PositiveStandard"), 10, { from: owner });
+    await repToken.manageStandard(web3.asciiToHex("DestroyedStandard"), 0, { from: owner });
+    await repToken.manageStandard(web3.asciiToHex("NegativeStandard"), -10, { from: owner });
 
     // tests that only owner/admin can use the applySingleStandard function
     try {
-      await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"), { from: callingAcc });
+      await repToken.applySingleStandard.call(receivingAccTwo, web3.asciiToHex("PositiveStandard"), { from: callingAcc });
       throw(new Error("Function should throw an error when called by anyone but the owner"));
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
     // tests that the owner can call the function and that it returns true
-    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"),
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.asciiToHex("PositiveStandard"),
         { from: owner }), true, "Function should allow the owner to use it and return true if successful");
 
     // tests that any admin can call the function and that it returns true
-    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.fromAscii("PositiveStandard"),
+    assert.equal(await repToken.applySingleStandard.call(receivingAccTwo, web3.asciiToHex("PositiveStandard"),
         { from: newAdmin }), true, "Function should allow the admin to use it and return true if successful");
 
     try {
-      await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("DestroyedStandard"), { from: owner});
+      await repToken.applySingleStandard(receivingAccTwo, web3.asciiToHex("DestroyedStandard"), { from: owner});
     } catch (error) {
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
-    let receipt = await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("PositiveStandard"),
+    let receipt = await repToken.applySingleStandard(receivingAccTwo, web3.asciiToHex("PositiveStandard"),
         { from: newAdminTwo });
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "Issued", "The event triggered should be an Issued event");
@@ -239,7 +239,7 @@ contract("reputationToken", function (accounts) {
 
     assert.equal(await repToken.reputationOf(receivingAccTwo, { from: owner }), 10, "User should have 10 reputation");
 
-    receipt = await repToken.applySingleStandard(receivingAccTwo, web3.fromAscii("NegativeStandard"),
+    receipt = await repToken.applySingleStandard(receivingAccTwo, web3.asciiToHex("NegativeStandard"),
         { from: newAdminTwo });
     assert.equal(receipt.logs.length, 1, "An event should be triggered");
     assert.equal(receipt.logs[0].event, "Burned", "The event triggered should be a Burned event");
@@ -257,21 +257,36 @@ contract("reputationToken", function (accounts) {
 
   it('should allow admins to batch update reputation', async function () {
     let repToken = await reputationToken.deployed();
-    console.log(">>>>>>>>", convBytes32("TestStandard"))
+
     // tests that only owner/admin can use the applyBatchStandard function
     try {
-      await repToken.applyBatchStandard.call([{to: receivingAcc, standardName: convBytes32("TestStandard")},
-            {to: receivingAcc, standardName: convBytes32("TestStandard")}], { from: callingAcc });
+      await repToken.applyBatchStandard.call([{to: receivingAcc, standardName: convToBytes32("TestStandard")},
+            {to: receivingAcc, standardName: convToBytes32("TestStandard")}], { from: callingAcc });
       throw(new Error("Function should throw an error when called by anyone but the owner and admin"));
     } catch (error) {
-      console.log(error)
       assert(error.message.indexOf("revert") >= 0, true, "Error returned must contain revert")
     }
 
-    await repToken.applyBatchStandard.call([[receivingAcc, "PositiveStandard"], [receivingAcc, "PositiveStandard"]],
-        { from: owner });
+    // checks that the function can be called by any admin or the owner
+    assert.isTrue(await repToken.applyBatchStandard.call([
+        {to: receivingAcc, standardName: convToBytes32("PositiveStandard")},
+        {to: receivingAcc, standardName: convToBytes32("PositiveStandard")}], { from: owner }))
+    assert.isTrue(await repToken.applyBatchStandard.call([
+        {to: receivingAcc, standardName: convToBytes32("PositiveStandard")},
+        {to: receivingAcc, standardName: convToBytes32("PositiveStandard")}], { from: newAdmin }))
+    assert.isTrue(await repToken.applyBatchStandard.call([
+      {to: receivingAcc, standardName: convToBytes32("PositiveStandard")},
+      {to: receivingAcc, standardName: convToBytes32("PositiveStandard")}], { from: newAdminTwo }))
 
-    assert.equal(await repToken.reputationOf(receivingAcc), 70, "The receiving account should have 70 reputation");
+    await repToken.applyBatchStandard([{to: receivingAcc, standardName: convToBytes32("PositiveStandard")},
+      {to: receivingAcc, standardName: convToBytes32("PositiveStandard")}], { from: owner })
+    assert.equal((await repToken.reputationOf(receivingAcc)).toNumber(), 70, "The receiving account should have 70 reputation");
+
+    await repToken.applyBatchStandard([
+        {to: receivingAcc, standardName: convToBytes32("NegativeStandard")},
+        {to: receivingAcc, standardName: convToBytes32("NegativeStandard")},
+        {to: receivingAcc, standardName: convToBytes32("NegativeStandard")}], { from: owner })
+    assert.equal(await repToken.reputationOf(receivingAcc), 40, { from: owner });
   });
 });
 
@@ -279,6 +294,14 @@ function cleanBytes(string) {
   return web3.toAscii(string).replace(/\0.*$/g,'')
 }
 
-function convBytes32(string) {
-  return web3.padRight(web3.fromAscii(string), 34)
+function convToBytes32(string) {
+  return web3.padRight(web3.asciiToHex(string), 64)
 }
+
+//  function bytesToBytes32(bytes memory b) public returns (bytes32) {
+//     bytes32 temp;
+//     assembly {
+//       temp := mload(add(b, 32))
+//     }
+//     return temp;
+//   }

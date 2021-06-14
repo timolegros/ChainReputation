@@ -181,7 +181,9 @@ contract reputationToken {
   }
 
   function applyBatchStandard(BatchStandards[] memory _batch) public onlyAdmin returns (bool) {
+//    return bytesToBytes32(_batch[0].standardName, 0);
     for (uint256 i=0; i < _batch.length; i++) {
+//      applySingleStandard(_batch[i].to, bytesToBytes32(_batch[i].standardName));
       applySingleStandard(_batch[i].to, _batch[i].standardName);
       // TODO: error handling
     }
@@ -189,6 +191,8 @@ contract reputationToken {
   }
 
   // TODO: devise method for transferring all reputation from one account to another (approval system?)
+
+
 
   function destroy() public onlyOwner {
     selfdestruct(payable(owner));
