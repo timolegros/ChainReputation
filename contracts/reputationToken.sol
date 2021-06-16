@@ -1,292 +1,99 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
 
-contract reputationToken {
+interface ReputationTokens{
+
+  /**
+  * @notice An enum that defines the current state of the token. A null token is unused or has not been created.
+  * An active token is being used. A destroyed token is no longer in use and can be overwritten
+  */
+  enum TokenState {NULL, ACTIVE, DESTROYED}
+
+  /**
+  * @notice This struct represents a single reputation Token type
+  * @dev The CID is an IPFS CID that stores the token standards and the controllers is a mapping of address to booleans
+  * where if the bool is true then that address has permission to issue and burn the token
+  */
+  struct Token {bytes CID; TokenState state; mapping(address => bool) controllers; address owner;}
+
+  event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, TokenState _state);
+  event BalanceChanged(bytes32 indexed _tokenName, address indexed _to, int256 _amount);
+  event OwnerChanged(bytes32 indexed _tokenName, address indexed _from, address indexed _to);
+  event ControllerChanged(bytes32 indexed _tokenName, address indexed _controller, bool allowed);
+
+  /**
+  * @notice Counts the amount of a specific token the _owner has
+  * @param _owner The address to check the balance ofi
+  * @param _tokenName The token names
+  * @return uint256
+  */
+  function balanceOf(address _owner, bytes32 _tokenName) external view returns (uint256);
+
+  /**
+  * @notice Creates a new token whose standards are defined on IPFS at the _CID
+  * @dev This function will revert if the state of the token defined at _tokenName is ACTIVE
+  * @param _CID The IPFS CID at which the standard of the new token is stored
+  * @param _tokenName The name for the new token
+  * @return bool
+  */
+  function createToken(bytes _CID, bytes32 _tokenName) external returns (bool);
+
+  /**
+  * @notice Simple function to issue any type of token
+  * @param _tokenName The name of the token to issue
+  * @param _to The address to issue the token to
+  * @return bool
+  */
+  function issue(bytes32 _tokenName, address _to) external returns (bool);
+
+  /**
+  * @notice Simple function to burn any type of token
+  * @param _tokenName The name of the token to burn
+  * @param _from The address to burn the token from
+  * @return bool
+  */
+  function burn(bytes32 _tokenName, address _from) external returns (bool);
+
+  /**
+  * @notice This function enables managing permissions to a token. Only addresses marked as true in the controllers
+  * mapping defined in the Token struct can issue or burn the token.
+  * @dev msg.sender must be the owner of the token to use this function
+  * @param _tokenName The name of the token to manage controllers for
+  * @param _controller The address of the controller to set
+  * @param _state The boolean value to assign to the _controller address in the controllers mapping
+  * @return bool
+  */
+  function manageController(bytes32 _tokenName, address _controller, bool _state) external returns (bool);
+
+  /**
+  * @notice This function enables managing the data of the token. This includes the token name, state, and CID.
+  * WARNING this function is all or nothing. For example, in order to change the _CID you must also pass the _tokenName
+  * and _state otherwise these will be reset to default value.
+  * @dev msg.sender must be the owner of the token to use this function.
+  * @param _CID The CID of the data on IPFS
+  * @param _tokenName The name of the token to manage
+  * @param _state A TokenState enum that defines whether the token is null, active, or destroyed
+  * @return bool
+  */
+  function manageToken(bytes _CID, bytes32 _tokenName, TokenState _state) external returns (bool);
+
+  function safeTransferOwnership(bytes32 _tokenName) external returns (bool);
+
+}
+
+/**
+@title The general standard for reputation tokens
+@author Timothee Legros, Zak Hap
+*/
+contract Tokens {
   bytes10 public name = "Reputation";
   bytes4 public symbol = "REPU";
-  bytes9 public version = "v1.0.0";
+  bytes9 public version = "v2.0.0";
 
-  uint256 public granularity = 1;
-
-  // mapping that stores reputation amount per address
-  mapping(address => uint256) public reputationOf;
-
-  // stores the standard interactions for modifying reputation
-  mapping(bytes32 => InteractionStandard) public standards;
-
-  // stores the admin structs which stores if the admin is authorized to issue/burn and also the amount they issued/burned
-  mapping(address => Admin) public admins;
-
-  // stores the ExternalContract structs which store info on any contracts that are authorized to use specific functions
-  mapping(address => ExternalContract) public contracts;
-
-  // array of names of InteractionStandards -- for convenience
-  bytes32[] public standardNames;
-
-  // stores the address of the owner of the smart contract
-  address public owner;
-
-  // the mapping is there to store any miscellaneous data that may need to be associated with standards in the future
-  struct InteractionStandard {
-    int256 repAmount; // can be negative for negative interactions such as being banned on a forum
-    bool destroyed; // used to indicate if the standard has been "deleted"
-    //    mapping(bytes32 => bytes32) misc;  // TODO: decide whether this is necessary
-  }
-
-  // stores admin information
-  struct Admin {
-    bool authorized;
-    uint256 totalRepIssued;
-    uint256 totalRepBurned;
-  }
-
-  // stores information on an external contract that has the rights to issue and burn reputation
-  struct ExternalContract {
-    bool authorized;
-    bytes32 name;
-  }
-
-  // regular batching
-  // used when batching multiple single standards/users together
-  struct BatchStandards {
-    address to;
-    bytes32 standardName;
-  }
-
-  // used in user batching to store the standard names and the number of times that standard should be applied to a user
-  struct StandardCount {
-    bytes32 name;
-    uint count;
-  }
-
-  // user optimized batching
-  // struct that represents a single user with their address and the standards plus their frequency
-  struct UserBatch {
-    address to;
-    StandardCount[] counts;
-  }
-
-
-
-  // Emitted when the contract generates and assigns and mount of reputation to an account
-  event Issued(address indexed _to, uint256 _amount);
-
-  // Emitted when the contract burns some amount of reputation on a certain account
-  event Burned(address indexed _from, uint256 _amount);
-
-  // Emitted when the owner adds an admin
-  event AdminAdded(address indexed _newAdmin);
-
-  // Emitted when a standard is created, edited, or destroyed
-  event StandardModified(bytes32 indexed _name, int256 _repAmount, bool indexed _destroyed);
-
-  // Emitted when the owner adds a contract
-  event ContractAdded(address indexed _newContract, bytes32 indexed _name);
-
-
-  // BY DEFAULT THESE MODIFIERS GIVE THE OWNER FULL CONTROL
-  // Used to require that the msg.sender (caller) is the controller in order to execute a function
-  modifier onlyAdmin () {
-    require(admins[msg.sender].authorized == true || msg.sender == owner);
-    _;
-  }
-
-  modifier onlyContract () {
-    require(contracts[msg.sender].authorized == true || msg.sender == owner);
-    _;
-  }
-
-  modifier onlyOwner () {
-    require(msg.sender == owner);
-    _;
-  }
-
-
-
-
-
-  constructor() {
-    // sets the owner as the deployer (who deployed reputationToken and reputationController together)
-    owner = msg.sender;
-  }
-
-//  function getStandardMisc(bytes32 _name, bytes32 _value) public returns (bytes32) {
-//    return standards[_name].misc[_value];
-//  }
-
-  function getStandardNames() public returns (bytes32[] memory){
-    return standardNames;
-  }
-
-  // function to issue reputation that can only be used by an authorized external contract
-  function issueReputation(address _to, uint256 _amount) external onlyContract returns (bool success) {
-    reputationOf[_to] += _amount;
-    emit Issued(_to, _amount);
-    return true;
-  }
-
-  // function to burn reputation that can only be used by an authorized external contract
-  function burnReputation(address _from, uint256 _amount) external onlyContract returns (bool success) {
-    if (reputationOf[_from] - _amount < 0) {
-      reputationOf[_from] = 0;
-    } else {
-      reputationOf[_from] -= _amount;
-    }
-
-    emit Burned(_from, _amount);
-    return true;
-  }
-
-  // allows the owner to add an admin but also clear an admins issued/burned counts
-  function addAdmin(address _newAdmin) external onlyOwner returns (bool success) {
-    admins[_newAdmin] = Admin(true, 0, 0);
-    emit AdminAdded(_newAdmin);
-    return true;
-  }
-
-  // allows the owner to add a contract or change its name
-  function addContract(address _newContractAddr, bytes32 _name) external onlyOwner returns (bool) {
-    contracts[_newContractAddr] = ExternalContract(true, _name);
-    emit ContractAdded(_newContractAddr, _name);
-    return true;
-  }
-
-  // used to create, edit, or delete any interaction standard
-  function manageStandard(bytes32 _name, int256 _repAmount) external onlyOwner returns (bool success) {
-
-    // check if _name is in standardNames array -- if it is set nameIndex to the its index in the array
-    uint16 nameIndex = 0;
-    for (uint16 i=0; i < standardNames.length; i++) {
-      if (_name == standardNames[i]) {
-        nameIndex = i + 1;
-        break;
-      }
-    }
-
-    if (_repAmount != 0) {
-      standards[_name].repAmount = _repAmount;
-      standards[_name].destroyed = false;
-      // if the nameIndex is still 0 then the name is not already in the array
-      if (nameIndex == 0) {
-        standardNames.push(_name);
-      }
-    } else {
-      standards[_name].repAmount = 0;
-      standards[_name].destroyed = true;
-      if (nameIndex > 0) {
-        delete standardNames[nameIndex - 1];
-      }
-    }
-
-    emit StandardModified(_name, _repAmount, _repAmount == 0);
-    return true;
-  }
-
-  // TODO: decide whether to revert or ignore when standard == destroyed or amount is 0
-  function applySingleStandard(address _to, bytes32 _standardName) public onlyAdmin returns (bool) {
-    int256 amount = standards[_standardName].repAmount;
-    if (amount == 0 || standards[_standardName].destroyed == true) {
-      revert (string(abi.encodePacked(
-          "Cannot apply ", bytes32ToString(_standardName), " to address: ", toString(_to)
-        ))
-      );
-    }
-    if (amount < 0) {
-      uint256 uAmount = uint256(amount * -1);
-      require(reputationOf[_to] - uAmount >= 0);
-      reputationOf[_to] -= uAmount;
-      admins[msg.sender].totalRepBurned += uAmount;
-      emit Burned(_to, uAmount);
-    } else {
-      reputationOf[_to] += uint256(amount);
-      admins[msg.sender].totalRepIssued += uint256(amount);
-      emit Issued(_to, uint256(amount));
-    }
-    return true;
-  }
-
-  // The optimized method of batching by grouping standards under users. The comment below displays what the
-  // format of the data should be. This method allows storing reputation data on a database and periodically updating
-  // the smart contract in order to reduce the total number of transactions.
-  // to: address to give reputation to
-  // counts: array containing the standards (and their amount) to apply to a specific user
-  // name: name of the standard
-  // count: the number of time this standard should be applied for the to address
-  /*
-    [{to:, counts: [{name: "", count: 0}, {name: "", count: 0}]},
-    {to:, counts: [{name: "", count: 0}, {name: "", count: 0}]}]
+  /**
+  * @dev a mapping of tokenName to a struct that defines if the token has been destroyed and an IPFS CID where the
+  * standards for that token are stored.
   */
-  function applyUserBatchStandard(UserBatch[] memory _batch) public onlyAdmin returns (bool) {
-    // loop through the users
-    for (uint256 i=0; i < _batch.length; i++) {
-      int256 total;
-      UserBatch memory user = _batch[i];
-      StandardCount memory currentStandard;
-      InteractionStandard memory storedStandard;
-      bytes32 name;
-      // loop through the standards to apply to each user
-      for (uint256 j=0; j < user.counts.length; j++) {
-        currentStandard = user.counts[j];
-        storedStandard = standards[currentStandard.name];
-        if (storedStandard.repAmount == 0 || storedStandard.destroyed == true) continue;
-        total += storedStandard.repAmount * int256(currentStandard.count);
-      }
+//  mapping(bytes32 => token) tokens;
 
-      if (total < 0) {
-        if (reputationOf[user.to] - uint256(total * -1) >= 0) {
-          reputationOf[user.to] -= uint256(total * -1);
-        } else {
-          reputationOf[user.to] = 0;
-        }
-      } else if (total > 0) {
-        reputationOf[user.to] += uint256(total);
-      }
-    }
-    return true;
-  }
-
-  function applyBatchStandard(BatchStandards[] memory _batch) public onlyAdmin returns (bool) {
-//    return bytesToBytes32(_batch[0].standardName, 0);
-    for (uint256 i=0; i < _batch.length; i++) {
-      applySingleStandard(_batch[i].to, _batch[i].standardName);
-    }
-    return true;
-  }
-
-  // TODO: devise method for transferring all reputation from one account to another (approval system?)
-
-  function toString(address account) private pure returns (string memory) {
-    return toString(abi.encodePacked(account));
-  }
-
-  function toString(bytes memory data) private pure returns (string memory) {
-    bytes memory alphabet = "0123456789abcdef";
-
-    bytes memory str = new bytes(2 + data.length * 2);
-    str[0] = "0";
-    str[1] = "x";
-    for (uint i = 0; i < data.length; i++) {
-      str[2+i*2] = alphabet[uint(uint8(data[i] >> 4))];
-      str[3+i*2] = alphabet[uint(uint8(data[i] & 0x0f))];
-    }
-    return string(str);
-  }
-
-  function bytes32ToString(bytes32 _bytes32) private pure returns (string memory) {
-    uint8 i = 0;
-    while(i < 32 && _bytes32[i] != 0) {
-      i++;
-    }
-    bytes memory bytesArray = new bytes(i);
-    for (i = 0; i < 32 && _bytes32[i] != 0; i++) {
-      bytesArray[i] = _bytes32[i];
-    }
-    return string(bytesArray);
-  }
-
-  function destroy() public onlyOwner {
-    selfdestruct(payable(owner));
-  }
-
-//  receive() external payable {}
 }
