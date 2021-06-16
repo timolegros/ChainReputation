@@ -14,20 +14,43 @@ interface ReputationTokens{
   * @dev The CID is an IPFS CID that stores the token standards and the controllers is a mapping of address to booleans
   * where if the bool is true then that address has permission to issue and burn the token
   */
+  // TODO: best data structure for storing controllers?
   struct Token {bytes CID; TokenState state; mapping(address => bool) controllers; address owner;}
 
+  /**
+  * @dev This emits when the name, CID, or state of the token changes
+  */
   event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, TokenState _state);
+
+  /**
+  * @dev This emits when the balance of any token changes for any address (both issue and burn)
+  */
   event BalanceChanged(bytes32 indexed _tokenName, address indexed _to, int256 _amount);
+
+  /**
+  * @dev This emits when the owner of a token changes
+  */
   event OwnerChanged(bytes32 indexed _tokenName, address indexed _from, address indexed _to);
-  event ControllerChanged(bytes32 indexed _tokenName, address indexed _controller, bool allowed);
+
+  /**
+  * @dev This emits when a controller of the token changes
+  */
+  event ControllerChanged(bytes32 indexed _tokenName, address indexed _controller, bool _allowed);
 
   /**
   * @notice Counts the amount of a specific token the _owner has
   * @param _owner The address to check the balance ofi
-  * @param _tokenName The token names
+  * @param _tokenName The token name to lookup in the addresses balance mapping
   * @return uint256
   */
   function balanceOf(address _owner, bytes32 _tokenName) external view returns (uint256);
+
+  /**
+  * @notice Returns the CID, state, and address of the owner of a token
+  * @param _tokenName The name of the token to get
+  * @return Token
+  */
+  function getToken(bytes32 _tokenName) external view returns (bytes memory, TokenState, address);
 
   /**
   * @notice Creates a new token whose standards are defined on IPFS at the _CID
@@ -36,7 +59,7 @@ interface ReputationTokens{
   * @param _tokenName The name for the new token
   * @return bool
   */
-  function createToken(bytes _CID, bytes32 _tokenName) external returns (bool);
+  function createToken(bytes memory _CID, bytes32 _tokenName) external returns (bool);
 
   /**
   * @notice Simple function to issue any type of token
@@ -75,9 +98,16 @@ interface ReputationTokens{
   * @param _state A TokenState enum that defines whether the token is null, active, or destroyed
   * @return bool
   */
-  function manageToken(bytes _CID, bytes32 _tokenName, TokenState _state) external returns (bool);
+  function manageToken(bytes memory _CID, bytes32 _tokenName, TokenState _state) external returns (bool);
 
-  function safeTransferOwnership(bytes32 _tokenName) external returns (bool);
+  /**
+  * @notice Transfers ownership of the specified token. The new owner can be any address including another contract
+  * @dev This function can only be used by the current owner of the token i.e. msg.sender == current owner
+  * @param _tokenName The name of the token to transfer
+  * @param _newOwner The address of the new owner to transfer ownership to
+  * @return bool
+  */
+  function transferOwnership(bytes32 _tokenName, address _newOwner) external returns (bool);
 
 }
 
@@ -85,15 +115,53 @@ interface ReputationTokens{
 @title The general standard for reputation tokens
 @author Timothee Legros, Zak Hap
 */
-contract Tokens {
-  bytes10 public name = "Reputation";
+contract Tokens is ReputationTokens {
+  bytes16 public name = "ReputationTokens";
   bytes4 public symbol = "REPU";
   bytes9 public version = "v2.0.0";
 
-  /**
-  * @dev a mapping of tokenName to a struct that defines if the token has been destroyed and an IPFS CID where the
-  * standards for that token are stored.
-  */
-//  mapping(bytes32 => token) tokens;
 
+
+  // mapping from the token name to the Token struct
+  mapping(bytes32 => Token) private tokens_;
+
+  // mapping from addresses/accounts to a mapping from the token name to the balance
+  mapping(address => mapping(bytes32 => uint256)) private balances_;
+
+  modifier onlyOwner(bytes32 _tokenName) {
+    require(tokens_[_tokenName].owner == msg.sender, "You must be the owner of the token to use this function");
+    _;
+  }
+
+  function balanceOf(address _owner, bytes32 _tokenName) external view override returns (uint256) {
+    return uint256(200);
+  }
+
+  function getToken(bytes32 _tokenName) external view override returns (bytes memory, TokenState, address) {
+    return (bytes(""), TokenState.ACTIVE, address(0));
+  }
+
+  function createToken(bytes memory _CID, bytes32 _tokenName) external override returns (bool) {
+    return true;
+  }
+
+  function issue(bytes32 _tokenName, address _to) external override returns (bool) {
+    return true;
+  }
+
+  function burn(bytes32 _tokenName, address _from) external override returns (bool) {
+    return true;
+  }
+
+  function manageController(bytes32 _tokenName, address _controller, bool _state) external override returns (bool) {
+    return true;
+  }
+
+  function manageToken(bytes memory _CID, bytes32 _tokenName, TokenState _state) external override returns (bool) {
+    return true;
+  }
+
+  function transferOwnership(bytes32 _tokenName, address _newOwner) external override returns (bool) {
+    return true;
+  }
 }

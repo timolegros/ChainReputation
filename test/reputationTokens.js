@@ -1,4 +1,4 @@
-const Tokens = artifacts.require("Tokens");
+const Tokens = artifacts.require("./reputationTokens.sol");
 const web3 = require("web3-utils")
 
 
