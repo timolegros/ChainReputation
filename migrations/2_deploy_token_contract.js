@@ -1,4 +1,4 @@
-const repToken = artifacts.require("./reputationToken.sol");
+const Tokens = artifacts.require("./reputationTokens.sol");
 
 module.exports = function (deployer) {
     // deployer.then(() => {
@@ -10,6 +10,6 @@ module.exports = function (deployer) {
     //     console.log(error)
     // })
     deployer.then(() => {
-        return deployer.deploy(repToken)
+        return deployer.deploy(Tokens)
     })
 }
