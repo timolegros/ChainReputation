@@ -4,23 +4,19 @@ pragma solidity >=0.4.22 <0.9.0;
 interface IRepTokens{
 
   /**
-  * @notice An enum that defines the current state of the token. A null token is unused or has not been created.
-  * An active token is being used. A destroyed token is no longer in use and can be overwritten
-  */
-  enum TokenState {NULL, ACTIVE, DESTROYED}
-
-  /**
   * @notice This struct represents a single reputation Token type
   * @dev The CID is an IPFS CID that stores the token standards and the controllers is a mapping of address to booleans
-  * where if the bool is true then that address has permission to issue and burn the token
+  * where if the bool is true then that address has permission to issue and burn the token. inUse is a boolean where
+  * when it is true it indicates that the token is being used/is valid (false indicates it has been destroyed or was
+  * never initialized).
   */
   // TODO: best data structure for storing controllers?
-  struct Token {bytes CID; TokenState state; mapping(address => bool) controllers; address owner;}
+  struct Token {bytes CID; bool inUse; mapping(address => bool) controllers; address owner;}
 
   /**
-  * @dev This emits when the name, CID, or state of the token changes
+  * @dev This emits when the name, owner, or state of the token changes
   */
-  event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, TokenState _state);
+  event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, bool _inUse);
 
   /**
   * @dev This emits when the balance of any token changes for any address (both issue and burn)
@@ -50,16 +46,17 @@ interface IRepTokens{
   * @param _tokenName The name of the token to get
   * @return Token
   */
-  function getToken(bytes32 _tokenName) external view returns (bytes memory, TokenState, address);
+  function getToken(bytes32 _tokenName) external view returns (bytes memory, bool, address);
 
   /**
   * @notice Creates a new token whose standards are defined on IPFS at the _CID
-  * @dev This function will revert if the state of the token defined at _tokenName is ACTIVE
+  * @dev This function will revert if inUse var of the token defined at _tokenName is true
   * @param _CID The IPFS CID at which the standard of the new token is stored
   * @param _tokenName The name for the new token
+  * @param _controllers An array of addresses that will be allowed to issue/burn this token (can be changed later)
   * @return bool
   */
-  function createToken(bytes memory _CID, bytes32 _tokenName) external returns (bool);
+  function createToken(bytes memory _CID, bytes32 _tokenName, address[] memory _controllers) external returns (bool);
 
   /**
   * @notice Simple function to issue any type of token
@@ -95,10 +92,11 @@ interface IRepTokens{
   * @dev msg.sender must be the owner of the token to use this function.
   * @param _CID The CID of the data on IPFS
   * @param _tokenName The name of the token to manage
-  * @param _state A TokenState enum that defines whether the token is null, active, or destroyed
+  * @param _inUse A boolean where true indicates the token is being used or is active and false means the token was
+  * never initialized or was destroyed
   * @return bool
   */
-  function manageToken(bytes memory _CID, bytes32 _tokenName, TokenState _state) external returns (bool);
+  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external returns (bool);
 
   /**
   * @notice Transfers ownership of the specified token. The new owner can be any address including another contract
@@ -116,8 +114,6 @@ contract RepTokens is IRepTokens {
   bytes4 public symbol = "REPU";
   bytes9 public version = "v2.0.0";
 
-
-
   // mapping from the token name to the Token struct
   mapping(bytes32 => Token) private tokens_;
 
@@ -130,14 +126,27 @@ contract RepTokens is IRepTokens {
   }
 
   function balanceOf(address _owner, bytes32 _tokenName) external view override returns (uint256) {
-    return uint256(200);
+    require(_owner != address(0), "balance query for the zero address");
+    return balances_[_owner][_tokenName];
   }
 
-  function getToken(bytes32 _tokenName) external view override returns (bytes memory, TokenState, address) {
-    return (bytes(""), TokenState.ACTIVE, address(0));
+  function getToken(bytes32 _tokenName) external view override returns (bytes memory, bool, address) {
+    return (tokens_[_tokenName].CID, tokens_[_tokenName].inUse, tokens_[_tokenName].owner);
   }
 
-  function createToken(bytes memory _CID, bytes32 _tokenName) external override returns (bool) {
+  function createToken(bytes memory _CID, bytes32 _tokenName, address[] memory _controllers) external override returns (bool) {
+    // ensure the token is not in use
+    require(tokens_[_tokenName].inUse == false);
+
+    tokens_[_tokenName].CID = _CID;
+    tokens_[_tokenName].inUse = true;
+    tokens_[_tokenName].owner = msg.sender;
+
+    for(uint i = 0; i < _controllers.length; i++) {
+      tokens_[_tokenName].controllers[_controllers[i]] = true;
+    }
+
+    emit TokenChanged(_tokenName, msg.sender, true);
     return true;
   }
 
@@ -153,7 +162,7 @@ contract RepTokens is IRepTokens {
     return true;
   }
 
-  function manageToken(bytes memory _CID, bytes32 _tokenName, TokenState _state) external override returns (bool) {
+  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external override returns (bool) {
     return true;
   }
 
