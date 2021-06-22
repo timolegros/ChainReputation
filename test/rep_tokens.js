@@ -50,9 +50,8 @@ contract("repTokens", function (accounts) {
     let receipt = await tokens.createToken(convToBytes32("1234"), convToBytes32("TestToken"),
         [controllerOne, controllerTwo], { from: tokenOwner });
     assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "TokenChanged", "The emitted event should be a TokenChanged event")
+    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
     assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._owner, tokenOwner, "The token owner should be the caller of the function")
     assert.equal(receipt.logs[0].args._inUse, true, "The inUse var should be set to true")
 
     let token = await tokens.getToken(convToBytes32("TestToken"));
@@ -127,7 +126,13 @@ contract("repTokens", function (accounts) {
 
   it('should allow a token owner to manage the controllers', async function () {
     let tokens = await repTokens.deployed()
-    assert.isTrue(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true,
+
+    // since controllerTwo is already a valid controller for TestToken this function call should return false
+    assert.isFalse(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true,
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // since controllerTwo is a valid controller for TestToken this function call should return true
+    assert.isTrue(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, false,
         { from: tokenOwner }), "The token owner should be able to call the function")
 
     // tests that a random caller cannot use the function
@@ -176,8 +181,44 @@ contract("repTokens", function (accounts) {
     assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
   });
 
-  it('should enable the management of tokens', async function () {
-// test that a token that is NOT inUse cannot be issued
+  it('should allow the owners to change the standard (CID) associated with their tokens', async function () {
+    let tokens = await repTokens.deployed()
+
+    // function should return true when the new/passed CID is different from the current CID
+    assert.isTrue(await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // function should return false when the new/passed CID is the same as the current CID
+    assert.isFalse(await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("1234"),
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // tests that a random caller cannot use the function
+    try {
+      await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
+          { from: randCaller })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    // tests that a controller of the token cannot use the function
+    try {
+      await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
+          { from: controllerOne })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    let receipt = await tokens.changeTokenStandard(convToBytes32("TestToken"), convToBytes32("4321"),
+        { from: tokenOwner })
+    assert.equal(receipt.logs.length, 1, "An event should be emitted");
+    assert.equal(receipt.logs[0].event, "TokenStandardChanged", "The emitted event should be a TokenStandardChanged event")
+    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+    let token = await tokens.getToken(convToBytes32("TestToken"))
+    assert.equal(cleanBytes(token[0]), "4321", "The new CID should be correctly set")
+
+// test that a token that is NOT inUse cannot be issued, burned, have its controllers changed, or ownership transferred
 //     await tokens.createToken(convToBytes32("1234"), convToBytes32("InitializedRandToken"),
 //         [controllerOne, controllerTwo], { from: tokenOwner });
 //     await tokens.manageToken(convToBytes32("1234"), convToBytes32("InitializedRandToken"), false,
@@ -189,6 +230,63 @@ contract("repTokens", function (accounts) {
 //       console.log(error)
 //       assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
 //     }
+  });
+
+  it('should allow owners of tokens to destroyed/soft delete their tokens', async function () {
+    let tokens = await repTokens.deployed()
+
+    // function should return true when the new/passed state is different from the current state
+    assert.isTrue(await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // function should return false when the new/passed CID is the same as the current CID
+    assert.isFalse(await tokens.changeTokenState.call(convToBytes32("TestToken"), true,
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // tests that a random caller cannot use the function
+    try {
+      await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
+          { from: randCaller })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    // tests that a controller of the token cannot use the function
+    try {
+      await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
+          { from: controllerOne })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    let receipt = await tokens.changeTokenState(convToBytes32("TestToken"), false,
+        { from: tokenOwner })
+    assert.equal(receipt.logs.length, 1, "An event should be emitted");
+    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
+    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+    assert.equal(receipt.logs[0].args._inUse, false, "The emitted token state should be false")
+    let token = await tokens.getToken(convToBytes32("TestToken"))
+    assert.equal(token[1], false, "The new token state should be correctly set")
+
+    receipt = await tokens.changeTokenState(convToBytes32("TestToken"), false,
+        { from: tokenOwner })
+    assert.equal(receipt.logs.length, 0, "No event should be emitted");
+    token = await tokens.getToken(convToBytes32("TestToken"))
+    assert.equal(token[1], false, "The new token state should be correctly set")
+
+    // TODO: test all the functions that have the inUseOnly modifier
+
+    // set inUse back to true
+    receipt = await tokens.changeTokenState(convToBytes32("TestToken"), true,
+        { from: tokenOwner })
+    assert.equal(receipt.logs.length, 1, "An event should be emitted");
+    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
+    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+    assert.equal(receipt.logs[0].args._inUse, true, "The emitted token state should be true")
+    token = await tokens.getToken(convToBytes32("TestToken"))
+    assert.equal(token[1], true, "The new token state should be correctly set")
   });
 
 });

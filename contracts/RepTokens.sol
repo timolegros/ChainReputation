@@ -14,9 +14,14 @@ interface IRepTokens{
   struct Token {bytes CID; bool inUse; mapping(address => bool) controllers; address owner;}
 
   /**
-  * @dev This emits when the name, owner, or state of the token changes
+  * @dev This emits when the CID of the token changes
   */
-  event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, bool _inUse);
+  event TokenStandardChanged(bytes32 indexed _tokenName);
+
+  /**
+* @dev This emits when the token is destroyed (i.e. inUse = false)
+*/
+  event TokenStateChanged(bytes32 indexed _tokenName, bool _inUse);
 
   /**
 * @dev This emits when _amount _tokenName is issued to _to
@@ -49,7 +54,7 @@ interface IRepTokens{
   /**
   * @notice Returns the CID, state, and address of the owner of a token
   * @param _tokenName The name of the token to get
-  * @return Token
+  * @return (bytes memory token CID, bool inUse, address owner)
   */
   function getToken(bytes32 _tokenName) external view returns (bytes memory, bool, address);
 
@@ -93,17 +98,20 @@ interface IRepTokens{
   function manageController(bytes32 _tokenName, address _controller, bool _state) external returns (bool);
 
   /**
-  * @notice This function enables managing the data of the token. This includes the token name, state, and CID.
-  * WARNING this function is all or nothing. For example, in order to change the _CID you must also pass the _tokenName
-  * and _state otherwise these will be reset to default value.
-  * @dev msg.sender must be the owner of the token to use this function.
-  * @param _CID The CID of the data on IPFS
-  * @param _tokenName The name of the token to manage
-  * @param _inUse A boolean where true indicates the token is being used or is active and false means the token was
-  * never initialized or was destroyed
+  * @notice This function changes a tokens CID which points to its standard on IPFS
+  * @param _tokenName The name of the token whose CID should be changed
+  * @param _CID The CID of the new token standard on IPFS
   * @return bool
   */
-  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external returns (bool);
+  function changeTokenStandard(bytes32 _tokenName, bytes memory _CID) external returns (bool);
+
+  /**
+  * @notice This function can either soft delete a token or undelete a token by setting the inUse parameter of a token.
+  * This function can be used to temporarily suspend a token.
+  * @param _tokenName The name of the token whose state the function should change
+  * @return bool Returns true if the state was changed and false if the state is already _inUse
+  */
+  function changeTokenState(bytes32 _tokenName, bool _inUse) external returns (bool);
 
   /**
   * @notice Transfers ownership of the specified token. The new owner can be any address including another contract
@@ -169,7 +177,7 @@ contract RepTokens is IRepTokens {
       tokens_[_tokenName].controllers[_controllers[i]] = true;
     }
 
-    emit TokenChanged(_tokenName, msg.sender, true);
+    emit TokenStateChanged(_tokenName, true);
     return true;
   }
 
@@ -195,13 +203,30 @@ contract RepTokens is IRepTokens {
     if (currentState != _state) {
       tokens_[_tokenName].controllers[_controller] = _state;
       emit ControllerChanged(_tokenName, _controller, _state);
+      return true;
+    } else {
+      return false;
     }
-
-    return true;
   }
 
-  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external override onlyOwner(_tokenName) returns (bool) {
-    return true;
+  function changeTokenStandard(bytes32 _tokenName, bytes memory _CID) external override onlyOwner(_tokenName) returns (bool) {
+    if (keccak256(tokens_[_tokenName].CID) != keccak256(_CID)) {
+      tokens_[_tokenName].CID = _CID;
+      emit TokenStandardChanged(_tokenName);
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  function changeTokenState(bytes32 _tokenName, bool _inUse) external override onlyOwner(_tokenName) returns (bool) {
+    if (tokens_[_tokenName].inUse != _inUse) {
+      tokens_[_tokenName].inUse = _inUse;
+      emit TokenStateChanged(_tokenName, _inUse);
+      return true;
+    } else {
+      return false;
+    }
   }
 
   function transferOwnership(bytes32 _tokenName, address _newOwner) external override onlyOwner(_tokenName) onlyInUse(_tokenName) returns (bool) {
