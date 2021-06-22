@@ -230,7 +230,14 @@ contract RepTokens is IRepTokens {
   }
 
   function transferOwnership(bytes32 _tokenName, address _newOwner) external override onlyOwner(_tokenName) onlyInUse(_tokenName) returns (bool) {
-    return true;
+    address currentOwner = tokens_[_tokenName].owner;
+    if (currentOwner != _newOwner) {
+      tokens_[_tokenName].owner = _newOwner;
+      emit OwnerChanged(_tokenName, currentOwner, _newOwner);
+      return true;
+    } else {
+      return false;
+    }
   }
 
   /**
