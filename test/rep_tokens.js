@@ -123,7 +123,57 @@ contract("repTokens", function (accounts) {
     assert.equal(await tokens.balanceOf(recAddrOne, convToBytes32("TestToken")), 25)
 
     // At the end of this test recAddrOne has 25 TestTokens
+  });
 
+  it('should allow a token owner to manage the controllers', async function () {
+    let tokens = await repTokens.deployed()
+    assert.isTrue(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true,
+        { from: tokenOwner }), "The token owner should be able to call the function")
+
+    // tests that a random caller cannot use the function
+    try {
+      await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true, { from: randCaller })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    // tests that a controller of the token cannot use the function
+    try {
+      await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true, { from: controllerOne })
+      assert.fail("The previous statement must revert")
+    } catch (error) {
+      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
+    }
+
+    // remove a controller
+    let receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, false, { from: tokenOwner })
+    assert.equal(receipt.logs.length, 1, "An event should be emitted");
+    assert.equal(receipt.logs[0].event, "ControllerChanged", "The emitted event should be a ControllerChanged event")
+    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+    assert.equal(receipt.logs[0].args._controller, controllerTwo, "The correct controller address should be emitted")
+    assert.equal(receipt.logs[0].args._state, false, "The state emitted should be false")
+    assert.isFalse(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+
+
+    // test removing the same controller twice does nothing
+    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, false, { from: tokenOwner })
+    assert.equal(receipt.logs.length, 0, "No event should be emitted");
+    assert.isFalse(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+
+    // add a controller
+    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, true, { from: tokenOwner })
+    assert.equal(receipt.logs.length, 1, "An event should be emitted");
+    assert.equal(receipt.logs[0].event, "ControllerChanged", "The emitted event should be a ControllerChanged event")
+    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+    assert.equal(receipt.logs[0].args._controller, controllerTwo, "The correct controller address should be emitted")
+    assert.equal(receipt.logs[0].args._state, true, "The state emitted should be true")
+    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+
+    // test adding the same controller twice does nothing
+    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, true, { from: tokenOwner })
+    assert.equal(receipt.logs.length, 0, "No event should be emitted");
+    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
   });
 
   it('should enable the management of tokens', async function () {

@@ -36,7 +36,7 @@ interface IRepTokens{
   /**
   * @dev This emits when a controller of the token changes
   */
-  event ControllerChanged(bytes32 indexed _tokenName, address indexed _controller, bool _allowed);
+  event ControllerChanged(bytes32 indexed _tokenName, address indexed _controller, bool _state);
 
   /**
   * @notice Counts the amount of a specific token the _owner has
@@ -139,6 +139,11 @@ contract RepTokens is IRepTokens {
     _;
   }
 
+  modifier onlyInUse(bytes32 _tokenName) {
+    require(tokens_[_tokenName].inUse == true, "The token must be active and in use (i.e. inUse == true)");
+    _;
+  }
+
   function balanceOf(address _owner, bytes32 _tokenName) external view override returns (uint256) {
     require(_owner != address(0), "balance query for the zero address");
     return balances_[_owner][_tokenName];
@@ -168,15 +173,13 @@ contract RepTokens is IRepTokens {
     return true;
   }
 
-  function issue(bytes32 _tokenName, address _to, uint256 _amount) external override onlyControllers(_tokenName) returns (bool) {
-    require(tokens_[_tokenName].inUse == true, "The token must be inUse (active/not-destroyed)");
+  function issue(bytes32 _tokenName, address _to, uint256 _amount) external override onlyControllers(_tokenName) onlyInUse(_tokenName) returns (bool) {
     balances_[_to][_tokenName] = add(balances_[_to][_tokenName], _amount);
     emit Issued(_tokenName, _to, _amount);
     return true;
   }
 
-  function burn(bytes32 _tokenName, address _from, uint256 _amount) external override onlyControllers(_tokenName) returns (bool) {
-    require(tokens_[_tokenName].inUse == true, "The token must be inUse (active/not-destroyed)");
+  function burn(bytes32 _tokenName, address _from, uint256 _amount) external override onlyControllers(_tokenName) onlyInUse(_tokenName) returns (bool) {
     if (balances_[_from][_tokenName] - _amount < 0) {
       balances_[_from][_tokenName] = 0;
     } else {
@@ -186,15 +189,22 @@ contract RepTokens is IRepTokens {
   return true;
   }
 
-  function manageController(bytes32 _tokenName, address _controller, bool _state) external override returns (bool) {
+  function manageController(bytes32 _tokenName, address _controller, bool _state) external override onlyOwner(_tokenName) onlyInUse(_tokenName) returns (bool) {
+    bool currentState = tokens_[_tokenName].controllers[_controller];
+
+    if (currentState != _state) {
+      tokens_[_tokenName].controllers[_controller] = _state;
+      emit ControllerChanged(_tokenName, _controller, _state);
+    }
+
     return true;
   }
 
-  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external override returns (bool) {
+  function manageToken(bytes memory _CID, bytes32 _tokenName, bool _inUse) external override onlyOwner(_tokenName) returns (bool) {
     return true;
   }
 
-  function transferOwnership(bytes32 _tokenName, address _newOwner) external override returns (bool) {
+  function transferOwnership(bytes32 _tokenName, address _newOwner) external override onlyOwner(_tokenName) onlyInUse(_tokenName) returns (bool) {
     return true;
   }
 
