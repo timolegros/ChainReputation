@@ -19,9 +19,14 @@ interface IRepTokens{
   event TokenChanged(bytes32 indexed _tokenName, address indexed _owner, bool _inUse);
 
   /**
-  * @dev This emits when the balance of any token changes for any address (both issue and burn)
-  */
-  event BalanceChanged(bytes32 indexed _tokenName, address indexed _to, int256 _amount);
+* @dev This emits when _amount _tokenName is issued to _to
+*/
+  event Issued(bytes32 indexed _tokenName, address indexed _to, uint256 _amount);
+
+  /**
+* @dev This emits when _amount _tokenName is burned from _from
+*/
+  event Burned(bytes32 indexed _tokenName, address indexed _from, uint256 _amount);
 
   /**
   * @dev This emits when the owner of a token changes
@@ -62,17 +67,19 @@ interface IRepTokens{
   * @notice Simple function to issue any type of token
   * @param _tokenName The name of the token to issue
   * @param _to The address to issue the token to
+  * @param _amount The unsigned integer amount of _tokenName to issue to _to
   * @return bool
   */
-  function issue(bytes32 _tokenName, address _to) external returns (bool);
+  function issue(bytes32 _tokenName, address _to, uint _amount) external returns (bool);
 
   /**
   * @notice Simple function to burn any type of token
   * @param _tokenName The name of the token to burn
   * @param _from The address to burn the token from
+  * @param _amount The unsigned integer amount of _tokenName to burn from _from
   * @return bool
   */
-  function burn(bytes32 _tokenName, address _from) external returns (bool);
+  function burn(bytes32 _tokenName, address _from, uint _amount) external returns (bool);
 
   /**
   * @notice This function enables managing permissions to a token. Only addresses marked as true in the controllers
@@ -125,6 +132,13 @@ contract RepTokens is IRepTokens {
     _;
   }
 
+  // this modifier allows the owner of a token by default
+  modifier onlyControllers(bytes32 _tokenName) {
+    require(tokens_[_tokenName].owner == msg.sender || tokens_[_tokenName].controllers[msg.sender] == true,
+      "You must be the owner or a controller of this token to use this function");
+    _;
+  }
+
   function balanceOf(address _owner, bytes32 _tokenName) external view override returns (uint256) {
     require(_owner != address(0), "balance query for the zero address");
     return balances_[_owner][_tokenName];
@@ -132,6 +146,10 @@ contract RepTokens is IRepTokens {
 
   function getToken(bytes32 _tokenName) external view override returns (bytes memory, bool, address) {
     return (tokens_[_tokenName].CID, tokens_[_tokenName].inUse, tokens_[_tokenName].owner);
+  }
+
+  function isController(bytes32 _tokenName, address _controller) external view returns (bool) {
+    return tokens_[_tokenName].controllers[_controller];
   }
 
   function createToken(bytes memory _CID, bytes32 _tokenName, address[] memory _controllers) external override returns (bool) {
@@ -150,12 +168,22 @@ contract RepTokens is IRepTokens {
     return true;
   }
 
-  function issue(bytes32 _tokenName, address _to) external override returns (bool) {
+  function issue(bytes32 _tokenName, address _to, uint256 _amount) external override onlyControllers(_tokenName) returns (bool) {
+    require(tokens_[_tokenName].inUse == true, "The token must be inUse (active/not-destroyed)");
+    balances_[_to][_tokenName] = add(balances_[_to][_tokenName], _amount);
+    emit Issued(_tokenName, _to, _amount);
     return true;
   }
 
-  function burn(bytes32 _tokenName, address _from) external override returns (bool) {
-    return true;
+  function burn(bytes32 _tokenName, address _from, uint256 _amount) external override onlyControllers(_tokenName) returns (bool) {
+    require(tokens_[_tokenName].inUse == true, "The token must be inUse (active/not-destroyed)");
+    if (balances_[_from][_tokenName] - _amount < 0) {
+      balances_[_from][_tokenName] = 0;
+    } else {
+      balances_[_from][_tokenName] = sub(balances_[_from][_tokenName], _amount);
+    }
+  emit Burned(_tokenName, _from, _amount);
+  return true;
   }
 
   function manageController(bytes32 _tokenName, address _controller, bool _state) external override returns (bool) {
@@ -168,5 +196,22 @@ contract RepTokens is IRepTokens {
 
   function transferOwnership(bytes32 _tokenName, address _newOwner) external override returns (bool) {
     return true;
+  }
+
+  /**
+* @dev Subtracts two numbers, throws on overflow (i.e. if subtrahend is greater than minuend).
+*/
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  /**
+  * @dev Adds two numbers, throws on overflow.
+  */
+  function add(uint256 a, uint256 b) internal pure returns (uint256 c) {
+    c = a + b;
+    assert(c >= a);
+    return c;
   }
 }
