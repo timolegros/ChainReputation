@@ -59,6 +59,13 @@ interface IRepTokens{
   function getToken(bytes32 _tokenName) external view returns (bytes memory, bool, address);
 
   /**
+  * @notice Returns true or false indicating whether or not the _controller address is a controller of _tokenName token
+  * @param _tokenName The name of the token whose controllers to query
+  * @param _controller Address to check the controller state of
+  */
+  function isController(bytes32 _tokenName, address _controller) external view returns (bool);
+
+  /**
   * @notice Creates a new token whose standards are defined on IPFS at the _CID
   * @dev This function will revert if inUse var of the token defined at _tokenName is true
   * @param _CID The IPFS CID at which the standard of the new token is stored
@@ -161,7 +168,7 @@ contract RepTokens is IRepTokens {
     return (tokens_[_tokenName].CID, tokens_[_tokenName].inUse, tokens_[_tokenName].owner);
   }
 
-  function isController(bytes32 _tokenName, address _controller) external view returns (bool) {
+  function isController(bytes32 _tokenName, address _controller) external view override returns (bool) {
     return tokens_[_tokenName].controllers[_controller];
   }
 
