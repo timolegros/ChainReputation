@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.4.22 <0.9.0;
-import "./SafeMath.sol";
-
 
 interface IRepTokens{
 
@@ -26,9 +24,9 @@ interface IRepTokens{
   event TokenStandardChanged(bytes32 indexed _tokenName);
 
   /**
-  * @dev This emits when the token stat changes
+  * @dev This emits when the token state changes
   */
-  event TokenStateChanged(bytes32 indexed _tokenName, TokenSate _state);
+  event TokenStateChanged(bytes32 indexed _tokenName, TokenState _state);
 
   /**
   * @dev This emits when _amount of _tokenName is issued to _to
@@ -46,33 +44,41 @@ interface IRepTokens{
   event OwnerChanged(bytes32 indexed _tokenName, address indexed _from, address indexed _to);
 
   /**
-  * @dev This emits when a oracle of the token changes
+  * @dev This emits when an oracle is added to the authorized array of a token
   */
-  event OracleChanged(bytes32 indexed _tokenName, address indexed _oracle, bool _state);
+  event OracleAdded(bytes32 indexed _tokenName, address indexed _oracle);
 
   /**
-  * @notice Counts the amount of a specific token the _owner has
-  * @param _owner The address to check the balance ofi
+  * @dev This emits when an oracle is removed from the authorized oracles array of a token
+  */
+  event OracleRemoved(bytes32 indexed _tokenName, address indexed _oracle);
+
+  /**
+  * @notice Counts the amount of a specific token the _owner has that was issued/burned by _oracle
+  * @param _owner The address to check the balance of
+  * @param _oracle The address of the oracle
   * @param _tokenName The token name to lookup in the addresses balance mapping
   * @return uint256
   */
-  function balanceOf(address _owner, bytes32 _tokenName) external view returns (uint256);
+  function balanceOf(address _owner, address _oracle, bytes32 _tokenName) external view returns (uint256);
 
   /**
-  * @notice Returns true or false indicating whether or not the _oracle address is a oracle of _tokenName token
-  * @param _tokenName The name of the token whose oracles to query
-  * @param _oracle Address to check the oracle state of
+  * @notice calculates the true balance of any user (for any token) by totalling the issue/burned amounts from each
+  * authorized oracle.
+  * @param _owner The address of the owner whose balance we should calculate
+  * @param _tokenName The name of the token to check the balance for
+  * @return uint256
   */
-  function isoracle(bytes32 _tokenName, address _oracle) external view returns (bool);
+  function trueBalanceOf(address _owner, bytes32 _tokenName) external view returns (uint256);
 
-  /**
-  * @notice Creates a new token whose standards are defined on IPFS at the _CID
-  * @dev This function will revert if the token state var of the token defined at _tokenName is ACTIVE or INACTIVE
-  * @param _CID The IPFS CID at which the standard of the new token is stored
-  * @param _tokenName The name for the new token
-  * @param _oracles An array of addresses that will be allowed to issue/burn this token (can be changed later)
-  * @return bool
-  */
+    /**
+    * @notice Creates a new token whose standards are defined on IPFS at the _CID
+    * @dev This function will revert if the token state var of the token defined at _tokenName is ACTIVE or INACTIVE
+    * @param _CID The IPFS CID at which the standard of the new token is stored
+    * @param _tokenName The name for the new token
+    * @param _oracles An array of addresses that will be allowed to issue/burn this token (can be changed later)
+    * @return bool
+    */
   function createToken(bytes memory _CID, bytes32 _tokenName, address[] memory _oracles) external returns (bool);
 
   /**
@@ -94,15 +100,22 @@ interface IRepTokens{
   function burn(bytes32 _tokenName, address _from, uint _amount) external returns (bool);
 
   /**
-  * @notice This function enables managing permissions to a token. Only addresses marked as true in the oracles
-  * mapping defined in the Token struct can issue or burn the token.
+  * @notice This function adds an oracle as a trusted issuer/burner of a token
   * @dev msg.sender must be the owner of the token to use this function
   * @param _tokenName The name of the token to manage oracles for
   * @param _oracle The address of the oracle to set
-  * @param _state The boolean value to assign to the _oracle address in the oracles mapping
-  * @return bool
+  * @return true if successful
   */
-  function manageOracle(bytes32 _tokenName, address _oracle, bool _state) external returns (bool);
+  function addOracle(bytes32 _tokenName, address _oracle) external returns (bool);
+
+  /**
+  * @notice This function removes an oracle as a trusted issuer/burner of a token
+  * @dev msg.sender must be the owner to use this function
+  * @param _tokenName The name of the token to remove the oracle from
+  * @param _oracle The address of the oracle to remove
+  * @return true if successful
+  */
+  function removeOracle(bytes32 _tokenName, address _oracle) external returns (bool);
 
   /**
   * @notice This function changes a tokens CID which points to its standard on IPFS
@@ -139,12 +152,12 @@ contract RepTokens is IRepTokens {
   // mapping from the token name to the Token struct
   mapping(bytes32 => Token) public tokens;
 
+  // stores token balances minted by each oracle by user
+  mapping(address => mapping(bytes32 => mapping(address => uint256))) public balanceOf_;
+
   // stores the index of the oracle address in the oracle array in a Token struct -- 0 indicates it is not present
   // aka index=1 is the first element in the array
-  mapping(address => mapping(bytes32 => uint256)) public oracles;
-
-  // stores token balances minted by each oracle by user
-  mapping(address => mapping(bytes32 => mapping(address => uint256))) public oracleBalances;
+  mapping(address => mapping(bytes32 => uint256)) private oracles;
 
   modifier onlyOwner(bytes32 _tokenName) {
     require(tokens[_tokenName].owner == msg.sender, "You must be the owner of the token to use this function");
@@ -163,14 +176,23 @@ contract RepTokens is IRepTokens {
     _;
   }
 
+  function getOracles(bytes32 _tokenName) external view returns (address [] memory) {
+    return tokens[_tokenName].oracles_;
+  }
+
+  function balanceOf(address _owner, address _oracle, bytes32 _tokenName) external view override returns (uint256) {
+    require(_owner != address(0), "Cannot query balance of the zero address");
+    return balanceOf_[_oracle][_tokenName][_owner];
+  }
+
   // returns the true balance of an address because it omits removed oracles from the total balance
-  function balanceOf(address _owner, bytes32 _tokenName) external view returns (uint256) {
+  function trueBalanceOf(address _owner, bytes32 _tokenName) external view override returns (uint256) {
     require(_owner != address(0), "Cannot query balance of the zero address");
     require(tokens[_tokenName].state != TokenState.NULL, "Cannot query balance of uninstantiated tokens");
 
     uint256 total = 0;
-    for (uint256 i = 0; i < tokens[_tokenName].oracles.length; i++) {
-      total += oracleBalances_[tokens[_tokenName].oracles[i]][_tokenName][_owner];
+    for (uint256 i = 0; i < tokens[_tokenName].oracles_.length; i++) {
+      total += balanceOf_[tokens[_tokenName].oracles_[i]][_tokenName][_owner];
     }
     return total;
   }
@@ -189,13 +211,13 @@ contract RepTokens is IRepTokens {
       oracles[_oracles[i]][_tokenName] = i + 1; // MUST BE +1 SINCE 1 IS CONSIDERED THE FIRST ELEMENT OF THE ARRAY
     }
 
-    emit TokenStateChanged(_tokenName, true);
+    emit TokenStateChanged(_tokenName, TokenState.ACTIVE);
     return true;
   }
 
   function issue(bytes32 _tokenName, address _to, uint256 _amount) external override onlyOracles(_tokenName) onlyActive(_tokenName) returns (bool) {
     require(_to != address(0), "RepToken: issue to the zero address");
-    oracleBalances[msg.sender][_tokenName][_to] = oracleBalances[msg.sender][_tokenName][_to].add(_amount);
+    balanceOf_[msg.sender][_tokenName][_to] += _amount;
     emit Issued(_tokenName, _to, _amount);
     return true;
   }
@@ -204,12 +226,16 @@ contract RepTokens is IRepTokens {
     require(_from != address(0), "RepToken: burn from the zero address");
     require(_amount > 0, "Cannot burn 0 tokens");
 
-    if (oracleBalances[msg.sender][_tokenName][_from] < _amount) {
-      oracleBalances[msg.sender][_tokenName][_from] = 0;
+    uint256 burnedAmount = 0;
+
+    if (balanceOf_[msg.sender][_tokenName][_from] < _amount) {
+      burnedAmount = balanceOf_[msg.sender][_tokenName][_from];
+      balanceOf_[msg.sender][_tokenName][_from] = 0;
     } else {
-      oracleBalances[msg.sender][_tokenName][_from] = oracleBalances[msg.sender][_tokenName][_from].sub(_amount);
+      burnedAmount = _amount;
+      balanceOf_[msg.sender][_tokenName][_from] -= _amount;
     }
-    emit Burned(_tokenName, _from, _amount);
+    emit Burned(_tokenName, _from, burnedAmount);
     return true;
   }
 
@@ -224,11 +250,11 @@ contract RepTokens is IRepTokens {
   }
 
   // removes a oracle from a tokens oracles array by replacing the oracle to remove with the last oracle in the array
-  function removeOracle(bytes32 _tokenName, address _oracle) external onlyOwner(_tokenName) returns (bool) {
+  function removeOracle(bytes32 _tokenName, address _oracle) external override onlyOwner(_tokenName) returns (bool) {
     require(_oracle != address(0), "removing the zero address");
     require(oracles[_oracle][_tokenName] != 0, "oracle is not authorized on this token");
 
-    address lastOracle = tokens[_tokenName].oracles[tokens[_tokenName].oracles.length - 1];
+    address lastOracle = tokens[_tokenName].oracles_[tokens[_tokenName].oracles_.length - 1];
 
     // replace oracle address to remove the address of the last oracle in the array
     tokens[_tokenName].oracles_[oracles[_oracle][_tokenName] - 1] = lastOracle;
@@ -237,7 +263,7 @@ contract RepTokens is IRepTokens {
     // reset the index of the oracle to remove to 0
     oracles[_oracle][_tokenName] = 0;
     // shorten the array (delete the last element)
-    tokens[_tokenName].oracles.length--;
+    tokens[_tokenName].oracles_.pop();
 
     emit OracleRemoved(_tokenName, _oracle);
     return true;
@@ -258,8 +284,8 @@ contract RepTokens is IRepTokens {
   }
 
   function transferOwnership(bytes32 _tokenName, address _newOwner) external override onlyOwner(_tokenName) returns (bool) {
+    require(_newOwner != tokens[_tokenName].owner, "New owner must be different than the current owner");
     address currentOwner = tokens[_tokenName].owner;
-    require(currentOwner != tokens[_tokenName].owner, "New owner must be different than the current owner");
     tokens[_tokenName].owner = _newOwner;
     emit OwnerChanged(_tokenName, currentOwner, _newOwner);
     return true;

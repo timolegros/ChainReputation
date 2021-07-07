@@ -1,4 +1,4 @@
-const repTokens = artifacts.require("RepTokens");
+const repTokensContract = artifacts.require("RepTokens");
 const web3 = require("web3-utils")
 
 /*
@@ -6,357 +6,491 @@ const web3 = require("web3-utils")
  * Ethereum client
  * See docs: https://www.trufflesuite.com/docs/truffle/testing/writing-tests-in-javascript
  */
+
+// TODO: once a token name/id has been used it cannot be removed since the mapping remains and another token could change the name but keep the balances
+// TODO: test removing the first oracle in the list and then check order
 contract("repTokens", function (accounts) {
   let ownerOne = accounts[0]
-  let ownerTwo = accounts[1]
+  let recAddrTwo = accounts[1]
   let randCaller = accounts[2]
-  let controllerOne = accounts[3]
-  let controllerTwo = accounts[4]
+  let oracleOne = accounts[3]
+  let oracleTwo = accounts[4]
   let recAddrOne = accounts[5]
   let tokenOwner = accounts[6]
   let tokenOwnerTwo = accounts[7]
   let zeroAddr = "0x0000000000000000000000000000000000000000"
+  let repTokens;
 
   it("should assert true", async function () {
-    await repTokens.deployed();
+    repTokens = await repTokensContract.deployed();
     return assert.isTrue(true);
   });
 
-  it('should allow anyone to view the balance of any token for any address', async function () {
-    let tokens = await repTokens.deployed()
-    try {
-      await tokens.balanceOf(zeroAddr, convToBytes32("RandomToken"))
-      assert.fail("Previous call must throw revert error")
-    } catch (error) {
-      assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
-    }
-    assert.equal((await tokens.balanceOf(ownerTwo, convToBytes32("RandomToken"))).toNumber(), 0,
-        {from: randCaller}, "Default token balance should be 0")
-  });
+  describe('Tests for creating a token', () => {
+    it('Access: anyone', async () => {
 
-  it('should allow anyone to view token CID, state, and owner', async function () {
-    let tokens = await repTokens.deployed()
-    let token = await tokens.getToken(convToBytes32("RandomToken"), { from: randCaller})
-    assert.equal(token[0], null, "The token CID should be null when uninitialized");
-    assert.equal(token[1], false, "The token state should false when uninitialized");
-    assert.equal(token[2], zeroAddr, "The token owner should be the 0 address when uninitialized")
-  });
+      assert.isTrue(await repTokens.createToken.call(convToBytes32("1234"), convToBytes32("TestToken"),
+          [oracleOne, oracleTwo]), { from: randCaller });
+    })
 
-  it('should allow anyone to create token with any name unless that name is already in use', async function () {
-    let tokens = await repTokens.deployed()
+    it('Functionality: Creates a token', async () => {
+      let receipt = await repTokens.createToken(convToBytes32("1234"), convToBytes32("TestToken"),
+          [oracleOne, oracleTwo], { from: tokenOwner });
 
-    assert.isTrue(await tokens.createToken.call(convToBytes32("1234"), convToBytes32("TestToken"),
-        [controllerOne, controllerTwo]), { from: randCaller });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+      assert.equal(receipt.logs[0].args._state, 1, "The state var should be set to 1 (ACTIVE)")
 
-    let receipt = await tokens.createToken(convToBytes32("1234"), convToBytes32("TestToken"),
-        [controllerOne, controllerTwo], { from: tokenOwner });
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._inUse, true, "The inUse var should be set to true")
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "1234", "The _CID should be 1234 in bytes");
+      assert.equal(token[1].toNumber(), 1, "The state var should be 1 (ACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be the sender of the msg")
 
-    let token = await tokens.getToken(convToBytes32("TestToken"));
-    assert.equal(cleanBytes(token[0]), "1234", "The _CID should be 1234 in bytes");
-    assert.equal(token[1], true, "The inUse var should be true (active/in-use)");
-    assert.equal(token[2], tokenOwner, "The owner should be the sender of the msg")
-    // assert.isTrue(await)
-  });
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+    })
 
-  it('should allow anyone to check if an address is a controller', async function () {
-    let tokens = await repTokens.deployed()
-    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerOne), { from: randCaller });
-    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo));
-  });
+    it('Edge case: cannot create token if the name is used by another token', async () => {
+      try {
+        await repTokens.createToken(convToBytes32("1234"), convToBytes32("TestToken"),
+            [oracleOne, oracleTwo], { from: tokenOwner });
+        assert.fail("Cannot create a token with the same name")
+      } catch (error) {
+        assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
+      }
+    })
+  })
 
-  it('should allow controllers and the owner to issue the token', async function () {
-    let tokens = await repTokens.deployed()
+  describe("Tests for issuing a token", () => {
+    it("Access: oracles + owner", async () => {
 
-    // tests calling function from the token owner (in this case the owner of the deployed contract)
-    assert.isTrue(await tokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: tokenOwner }))
+      // tests calling function from the token owner
+      assert.isTrue(await repTokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: tokenOwner }))
 
-    // test using function from a controller
-    assert.isTrue(await tokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: controllerOne }))
+      // test using function from an oracle
+      assert.isTrue(await repTokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: oracleOne }))
 
-    // test using function from a non-controller should throw an error
-    try {
-      await tokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: recAddrOne })
-      assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
-    }
+      // test using function from a non-oracle address should throw an error
+      try {
+        await repTokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: recAddrOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
 
-    let receipt = await tokens.issue(convToBytes32("TestToken"), recAddrOne, 100, { from: controllerOne })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "Issued", "The emitted event should be a Issued event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._to, recAddrOne, "The correct receiving address should be emitted")
-    assert.equal(receipt.logs[0].args._amount, 100, "The amount emitted should be correct")
+    it('Functionality: Should issue tokens', async () => {
+      // oracleOne
+      let receipt = await repTokens.issue(convToBytes32("TestToken"), recAddrOne, 100, { from: oracleOne })
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "Issued", "The emitted event should be a Issued event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+      assert.equal(receipt.logs[0].args._to, recAddrOne, "The correct receiving address should be emitted")
+      assert.equal(receipt.logs[0].args._amount, 100, "The amount emitted should be correct")
 
-    assert.equal(await tokens.balanceOf(recAddrOne, convToBytes32("TestToken")), 100)
+      assert.equal(await repTokens.balanceOf(recAddrOne, oracleOne, convToBytes32("TestToken")), 100)
 
-    // At the end of this test recAddrOne has 100 TestTokens
-  });
+      // oracleTwo
+      receipt = await repTokens.issue(convToBytes32("TestToken"), recAddrOne, 100, { from: oracleTwo })
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "Issued", "The emitted event should be a Issued event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+      assert.equal(receipt.logs[0].args._to, recAddrOne, "The correct receiving address should be emitted")
+      assert.equal(receipt.logs[0].args._amount, 100, "The amount emitted should be correct")
 
-  it('should allow controllers and the owner to burn a token', async function () {
-    let tokens = await repTokens.deployed()
-    // tests calling function from the token owner (in this case the owner of the deployed contract)
-    assert.isTrue(await tokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: tokenOwner }))
+      assert.equal(await repTokens.balanceOf(recAddrOne, oracleTwo, convToBytes32("TestToken")), 100)
 
-    // test using function from a controller
-    assert.isTrue(await tokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: controllerOne }))
+      // At the end of this test recAddrOne has 100 TestTokens issued by oracleOne amd 100 issued by oracleTwo
+    });
 
-    // test using function from a non-controller should throw an error
-    try {
-      await tokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: recAddrOne })
-      assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
-    }
+    it('Edge case: cannot issue negative reputation', async () => {
+      // test using function from a non-oracle address should throw an error
+      try {
+        await repTokens.issue(convToBytes32("TestToken"), recAddrOne, -100, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert.equal(error.code, 'INVALID_ARGUMENT', "The function call should throw invalid argument")
+      }
+    })
+  })
 
-    let receipt = await tokens.burn(convToBytes32("TestToken"), recAddrOne, 75, { from: controllerOne })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "Burned", "The emitted event should be a Burned event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._from, recAddrOne, "The correct receiving address should be emitted")
-    assert.equal(receipt.logs[0].args._amount.toNumber(), 75, "The amount emitted should be correct")
+  describe("Tests for burning a token", () => {
+    it('Access: oracles + owner', async () => {
+      // tests calling function from the token owner (in this case the owner of the deployed contract)
+      assert.isTrue(await repTokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: tokenOwner }))
 
-    assert.equal(await tokens.balanceOf(recAddrOne, convToBytes32("TestToken")), 25)
+      // test using function from a controller
+      assert.isTrue(await repTokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: oracleOne }))
 
-    // At the end of this test recAddrOne has 25 TestTokens
-  });
+      // test using function from a non-controller should throw an error
+      try {
+        await repTokens.burn.call(convToBytes32("TestToken"), recAddrOne, 75, { from: recAddrOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
 
-  it('should allow a token owner to manage the controllers', async function () {
-    let tokens = await repTokens.deployed()
+    it('Functionality: Should burn tokens', async function () {
+      let receipt = await repTokens.burn(convToBytes32("TestToken"), recAddrOne, 75, { from: oracleOne });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "Burned", "The emitted event should be a Burned event");
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken");
+      assert.equal(receipt.logs[0].args._from, recAddrOne, "The correct receiving address should be emitted");
+      assert.equal(receipt.logs[0].args._amount.toNumber(), 75, "The amount emitted should be correct");
 
-    // since controllerTwo is already a valid controller for TestToken this function call should return false
-    assert.isFalse(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true,
-        { from: tokenOwner }), "The token owner should be able to call the function")
+      assert.equal(await repTokens.balanceOf(recAddrOne, oracleOne, convToBytes32("TestToken")), 25);
 
-    // since controllerTwo is a valid controller for TestToken this function call should return true
-    assert.isTrue(await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, false,
-        { from: tokenOwner }), "The token owner should be able to call the function")
+      // At the end of this test recAddrOne has 25 TestTokens issued by oracleOne and 100 TestTokens issued by oracleTwo
+    });
 
-    // tests that a random caller cannot use the function
-    try {
-      await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true, { from: randCaller })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
+    it('Edge case: cannot burn past 0', async () => {
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleOne, convToBytes32("TestToken")), 0);
 
-    // tests that a controller of the token cannot use the function
-    try {
-      await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, true, { from: controllerOne })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
+      let receipt = await repTokens.burn(convToBytes32("TestToken"), recAddrTwo, 100, { from: oracleOne });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "Burned", "The emitted event should be a Burned event");
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken");
+      assert.equal(receipt.logs[0].args._from, recAddrTwo, "The correct receiving address should be emitted");
+      assert.equal(receipt.logs[0].args._amount.toNumber(), 0, "The amount emitted should be correct");
 
-    // remove a controller
-    let receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, false, { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "ControllerChanged", "The emitted event should be a ControllerChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._controller, controllerTwo, "The correct controller address should be emitted")
-    assert.equal(receipt.logs[0].args._state, false, "The state emitted should be false")
-    assert.isFalse(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleOne, convToBytes32("TestToken")), 0);
+    })
+
+    it('Edge case: cannot burn a negative amount', async () => {
+      // test using function from a non-oracle should throw an error
+      try {
+        await repTokens.burn(convToBytes32("TestToken"), recAddrOne, -10, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert.equal(error.code, 'INVALID_ARGUMENT', "The function call should throw invalid argument")
+      }
+    })
+  })
+
+  describe("Tests for removing oracles", () => {
+    it('Access: only token owner', async () => {
+      try {
+        await repTokens.removeOracle(convToBytes32("TestToken"), oracleTwo, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      try {
+        await repTokens.removeOracle(convToBytes32("TestToken"), oracleTwo, { from: randCaller })
+        assert.fail("The function should not be callable by anyone but the owner of the token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      assert.isTrue(await repTokens.removeOracle.call(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner }))
+    })
+
+    it('Functionality: should remove an oracle from a token', async () => {
+      let receipt = await repTokens.removeOracle(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner })
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "OracleRemoved", "The emitted event should be a OracleRemoved event");
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken");
+      assert.equal(receipt.logs[0].args._oracle, oracleTwo, "The correct receiving address should be emitted");
+
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "1234", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 1, "The state var should be 1 (ACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be correct");
+
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr.length, 1);
+
+      // at the end of this test "TestToken" only has oracleOne in its oracles_ array
+    })
+
+    it("Edge case: cannot remove an oracle that isn't authorized", async () => {
+      try {
+        await repTokens.removeOracle(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner })
+        assert.fail("The function should fail if the passed oracle is not authorized for the given token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
+  })
+
+  describe("Tests for adding oracles", () => {
+    it('Access: only token owner', async () => {
+      try {
+        await repTokens.addOracle(convToBytes32("TestToken"), recAddrOne, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      try {
+        await repTokens.addOracle(convToBytes32("TestToken"), recAddrOne, { from: randCaller })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      assert.isTrue(await repTokens.addOracle.call(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner }))
+    })
+
+    it('Functionality: should add an oracle to a token', async () => {
+      let receipt = await repTokens.addOracle(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner })
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "OracleAdded", "The emitted event should be a OracleAdded event");
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken");
+      assert.equal(receipt.logs[0].args._oracle, oracleTwo, "The correct receiving address should be emitted");
+
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "1234", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 1, "The state var should be 1 (ACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be correct");
+
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+
+      // at the end of this test "TestToken" has oracleOne and oracleTwo in its oracles_ array
+    })
+
+    it("Edge case: cannot add an oracle that is already authorized", async () => {
+      try {
+        await repTokens.addOracle(convToBytes32("TestToken"), oracleTwo, { from: tokenOwner })
+        assert.fail("The function should fail if the passed oracle is already authorized for the given token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
+  })
+
+  describe("Tests for getting the true on-chain balance", () => {
+    it('Access: anyone', async () => {
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken"), { from: tokenOwner }), 0)
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken"), { from: recAddrOne }), 0);
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken"), { from: recAddrTwo }), 0);
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken"), { from: oracleOne }), 0);
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken"), { from: oracleTwo }), 0);
+    })
+
+    it('Functionality: calculate the true balance across all oracles', async () => {
+      assert.equal(await repTokens.trueBalanceOf(recAddrOne, convToBytes32("TestToken")), 125,
+          "recAddrOne should have 100 tokens issued from oracleTwo and 25 tokens issued from oracleOne");
+      assert.equal(await repTokens.trueBalanceOf(recAddrTwo, convToBytes32("TestToken")), 0,
+          "recAddrTwo should have 0 tokens from either oracle");
+    })
+
+    it('Edge case: cannot query the zero address', async () => {
+      try {
+        await repTokens.trueBalanceOf(zeroAddr, convToBytes32("RandomToken"))
+        assert.fail("Cannot query the balance of the zero address")
+      } catch (error) {
+        assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
+      }
+    })
+  })
+
+  // TODO: Move this earlier since it is used in previous tests
+  describe("Tests for getting the balance of a user issued by a specific oracle", () => {
+    it('Access: anyone', async () => {
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleTwo, convToBytes32("TestToken"), { from: tokenOwner }), 0)
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleTwo, convToBytes32("TestToken"), { from: recAddrOne }), 0);
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleTwo, convToBytes32("TestToken"), { from: recAddrTwo }), 0);
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleTwo, convToBytes32("TestToken"), { from: oracleOne }), 0);
+      assert.equal(await repTokens.balanceOf(recAddrTwo, oracleTwo, convToBytes32("TestToken"), { from: oracleTwo }), 0);
+    })
+
+    it('Functionality: gets the balance of a user for a specific token and oracle', async () => {
+      assert.equal(await repTokens.balanceOf(recAddrOne, oracleTwo, convToBytes32("TestToken")), 100);
+      assert.equal(await repTokens.balanceOf(recAddrOne, oracleOne, convToBytes32("TestToken")), 25);
+    })
+
+    it('Edge case: cannot query the zero address', async () => {
+      try {
+        await repTokens.balanceOf(zeroAddr, oracleTwo, convToBytes32("TestToken"));
+        assert.fail("Cannot query the balance of the zero address")
+      } catch (error) {
+        assert(error.message.indexOf("revert") >= 0, "Error message must contain revert");
+      }
+    })
+  })
+
+  describe("Tests for getting token data", () => {
+    it('Access: anyone', async () => {
+      assert.equal((await repTokens.tokens(convToBytes32("TestToken"), { from: tokenOwner }))[0], convToBytes32("1234"));
+      assert.equal((await repTokens.tokens(convToBytes32("TestToken"), { from: recAddrOne }))[0], convToBytes32("1234"));
+      assert.equal((await repTokens.tokens(convToBytes32("TestToken"), { from: recAddrTwo }))[0], convToBytes32("1234"));
+      assert.equal((await repTokens.tokens(convToBytes32("TestToken"), { from: randCaller }))[0], convToBytes32("1234"));
+    })
+    it('Functionality: gets token data', async () => {
+      let token = await repTokens.tokens(convToBytes32("RandomToken"));
+      assert.equal(token[0], null, "The token CID should be null when uninitialized");
+      assert.equal(token[1], 0, "The token state should 0 (NULL) when uninitialized");
+      assert.equal(token[2], zeroAddr, "The token owner should be the 0 address when uninitialized");
+      let oracleArr = await repTokens.getOracles(convToBytes32("RandomToken"));
+      assert.equal(oracleArr.length, 0);
+
+      token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "1234", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 1, "The state var should be 1 (ACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be the sender of the msg")
+      oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+    })
+  })
+
+  describe("Tests for changing token CID", () => {
+    it("Access: only token owner", async () => {
+
+      try {
+        await repTokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"), { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner of the token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      try {
+        await repTokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"), { from: randCaller })
+        assert.fail("The function should not be callable by anyone but the owner of the token")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      assert.isTrue(await repTokens.changeTokenStandard.call(
+          convToBytes32("TestToken"),
+          convToBytes32("4321"),
+          { from: tokenOwner }))
+    })
+
+    it("Functionality: should change the token CID", async () => {
+
+      let receipt = await repTokens.changeTokenStandard(convToBytes32("TestToken"), convToBytes32("4321"),
+          { from: tokenOwner });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "TokenStandardChanged", "The emitted event should be a TokenStandardChanged event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "4321", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 1, "The state var should be 1 (ACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be the sender of the msg")
+
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+    })
+
+    it("Edge case: cannot change token CID to the same CID", async () => {
+      try {
+        await repTokens.changeTokenStandard(convToBytes32("TestToken"), convToBytes32("4321"), { from: tokenOwner })
+        assert.fail("The function should not be callable by anyone but the owner of the token or its controllers")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
+  })
+
+  describe("Tests for change token state", () => {
+    it("Access: only token owner", async () => {
+      try {
+        await repTokens.changeTokenState.call(convToBytes32("TestToken"), 2, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      try {
+        await repTokens.changeTokenState.call(convToBytes32("TestToken"), 2, { from: randCaller })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      assert.isTrue(await repTokens.changeTokenState.call(convToBytes32("TestToken"), 2, { from: tokenOwner }))
+    })
+
+    it("Functionality: should change the token state", async () => {
+      let receipt = await repTokens.changeTokenState(convToBytes32("TestToken"), 2, { from: tokenOwner });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+      assert.equal(receipt.logs[0].args._state, 2, "The correct token state should be emitted")
+
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "4321", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 2, "The state var should be 2 (INACTIVE)");
+      assert.equal(token[2], tokenOwner, "The owner should be the sender of the msg")
+
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+    })
+
+    it("Edge case: cannot change token state to the same state", async () => {
+      try {
+        await repTokens.changeTokenState.call(convToBytes32("TestToken"), 2, { from: tokenOwner })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
+  })
+
+  describe("Tests for transferring token ownership", () => {
+    it("Access: only token owner", async () => {
+      try {
+        await repTokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: oracleOne })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      try {
+        await repTokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: randCaller })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+
+      assert.isTrue(await repTokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: tokenOwner }))
+    })
+    it("Functionality: should change the token owner", async () => {
+      let receipt = await repTokens.transferOwnership(convToBytes32("TestToken"), tokenOwnerTwo, { from: tokenOwner });
+      assert.equal(receipt.logs.length, 1, "An event should be emitted");
+      assert.equal(receipt.logs[0].event, "OwnerChanged", "The emitted event should be a OwnerChanged event")
+      assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
+      assert.equal(receipt.logs[0].args._from, tokenOwner)
+      assert.equal(receipt.logs[0].args._to, tokenOwnerTwo)
 
 
-    // test removing the same controller twice does nothing
-    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, false, { from: tokenOwner })
-    assert.equal(receipt.logs.length, 0, "No event should be emitted");
-    assert.isFalse(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+      let token = await repTokens.tokens(convToBytes32("TestToken"));
+      assert.equal(cleanBytes(token[0]), "4321", "The _CID should be 1234 in bytes");
+      assert.equal(token[1], 2, "The state var should be 2 (INACTIVE)");
+      assert.equal(token[2], tokenOwnerTwo, "The owner should be the sender of the msg");
 
-    // add a controller
-    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, true, { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "ControllerChanged", "The emitted event should be a ControllerChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._controller, controllerTwo, "The correct controller address should be emitted")
-    assert.equal(receipt.logs[0].args._state, true, "The state emitted should be true")
-    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
+      let oracleArr = await repTokens.getOracles(convToBytes32("TestToken"));
+      assert.equal(oracleArr[0], oracleOne);
+      assert.equal(oracleArr[1], oracleTwo);
+      assert.equal(oracleArr.length, 2);
+    })
 
-    // test adding the same controller twice does nothing
-    receipt = await tokens.manageController(convToBytes32("TestToken"), controllerTwo, true, { from: tokenOwner })
-    assert.equal(receipt.logs.length, 0, "No event should be emitted");
-    assert.isTrue(await tokens.isController(convToBytes32("TestToken"), controllerTwo))
-  });
-
-  it('should allow the owners to change the standard (CID) associated with their tokens', async function () {
-    let tokens = await repTokens.deployed()
-
-    // function should return true when the new/passed CID is different from the current CID
-    assert.isTrue(await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // function should return false when the new/passed CID is the same as the current CID
-    assert.isFalse(await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("1234"),
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // tests that a random caller cannot use the function
-    try {
-      await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
-          { from: randCaller })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    // tests that a controller of the token cannot use the function
-    try {
-      await tokens.changeTokenStandard.call(convToBytes32("TestToken"), convToBytes32("4321"),
-          { from: controllerOne })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    let receipt = await tokens.changeTokenStandard(convToBytes32("TestToken"), convToBytes32("4321"),
-        { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "TokenStandardChanged", "The emitted event should be a TokenStandardChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    let token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(cleanBytes(token[0]), "4321", "The new CID should be correctly set")
-  });
-
-  it('should allow owners to transfer ownership of their tokens', async function () {
-    let tokens = await repTokens.deployed()
-
-    // function should return true when the new/passed owner is different from the current owner
-    assert.isTrue(await tokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo,
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // function should return false when the new/passed owner is the same as the current owner
-    assert.isFalse(await tokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwner,
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // tests that a random caller cannot use the function
-    try {
-      await tokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: randCaller })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    // tests that a controller of the token cannot use the function
-    try {
-      await tokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: controllerOne })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    // set TestToken owner to tokenOwnerTwo
-    let receipt = await tokens.transferOwnership(convToBytes32("TestToken"), tokenOwnerTwo,
-        { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "OwnerChanged", "The emitted event should be a OwnerChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._from, tokenOwner, "The emitted old token owner should be correct")
-    assert.equal(receipt.logs[0].args._to, tokenOwnerTwo, "The emitted new token owner should be correct")
-    let token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[2], tokenOwnerTwo, "The new token owner should be correctly set")
-
-    receipt = await tokens.transferOwnership(convToBytes32("TestToken"), tokenOwnerTwo,
-        { from: tokenOwnerTwo })
-    assert.equal(receipt.logs.length, 0, "No event should be emitted");
-    token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[2], tokenOwnerTwo, "The new token owner should be correctly set")
-
-    // reset TestToken owner back to tokenOwner
-    receipt = await tokens.transferOwnership(convToBytes32("TestToken"), tokenOwner,
-        { from: tokenOwnerTwo })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "OwnerChanged", "The emitted event should be a OwnerChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._from, tokenOwnerTwo, "The emitted old token owner should be correct")
-    assert.equal(receipt.logs[0].args._to, tokenOwner, "The emitted new token owner should be correct")
-    token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[2], tokenOwner, "The new token owner should be correctly set")
-  });
-
-  it('should allow owners of tokens to control the state (inUse) of their token', async function () {
-    let tokens = await repTokens.deployed()
-
-    // function should return true when the new/passed state is different from the current state
-    assert.isTrue(await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // function should return false when the new/passed CID is the same as the current CID
-    assert.isFalse(await tokens.changeTokenState.call(convToBytes32("TestToken"), true,
-        { from: tokenOwner }), "The token owner should be able to call the function")
-
-    // tests that a random caller cannot use the function
-    try {
-      await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
-          { from: randCaller })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    // tests that a controller of the token cannot use the function
-    try {
-      await tokens.changeTokenState.call(convToBytes32("TestToken"), false,
-          { from: controllerOne })
-      assert.fail("The previous statement must revert")
-    } catch (error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    let receipt = await tokens.changeTokenState(convToBytes32("TestToken"), false,
-        { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._inUse, false, "The emitted token state should be false")
-    let token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[1], false, "The new token state should be correctly set")
-
-    receipt = await tokens.changeTokenState(convToBytes32("TestToken"), false,
-        { from: tokenOwner })
-    assert.equal(receipt.logs.length, 0, "No event should be emitted");
-    token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[1], false, "The new token state should be correctly set")
-
-    // tests all the functions that have the onlyInUse modifier
-    try {
-      await tokens.manageController.call(convToBytes32("TestToken"), controllerTwo, false, { from: tokenOwner })
-      assert.fail("Function call should trigger revert since token state (inUse) is false")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-    try {
-      await tokens.burn.call(convToBytes32("TestToken"), recAddrOne, 25, { from: tokenOwner })
-      assert.fail("Function call should trigger revert since token state (inUse) is false")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-    try {
-      await tokens.issue.call(convToBytes32("TestToken"), recAddrOne, 100, { from: tokenOwner })
-      assert.fail("Function call should trigger revert since token state (inUse) is false")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-    try {
-      await tokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: tokenOwner })
-      assert.fail("Function call should trigger revert since token state (inUse) is false")
-    } catch(error) {
-      assert(error.message.indexOf("revert") > -1, "The error message must contain revert")
-    }
-
-    // set inUse back to true
-    receipt = await tokens.changeTokenState(convToBytes32("TestToken"), true,
-        { from: tokenOwner })
-    assert.equal(receipt.logs.length, 1, "An event should be emitted");
-    assert.equal(receipt.logs[0].event, "TokenStateChanged", "The emitted event should be a TokenStateChanged event")
-    assert.equal(cleanBytes(receipt.logs[0].args._tokenName), "TestToken", "The emitted token name should be TestToken")
-    assert.equal(receipt.logs[0].args._inUse, true, "The emitted token state should be true")
-    token = await tokens.getToken(convToBytes32("TestToken"))
-    assert.equal(token[1], true, "The new token state should be correctly set")
-  });
-
+    it("Edge case: cannot change token owner to the same owner", async () => {
+      try {
+        await repTokens.transferOwnership.call(convToBytes32("TestToken"), tokenOwnerTwo, { from: tokenOwner })
+        assert.fail("The function should not be callable by anyone but the owner")
+      } catch(error) {
+        assert(error.message.indexOf("revert") > -1, "The message should be a revert message")
+      }
+    })
+  })
 });
 
 function cleanBytes(string) {
